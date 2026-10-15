@@ -19,7 +19,7 @@ type CpuPayload struct {
 type DiskPayload struct {
 	Token     string       `json:"token"`
 	Timestamp int64        `json:"timestamp"`
-	Disks     []DiskStatus `json:"disks"`
+	Disks     []AdvancedDiskStatus `json:"disks"`
 }
 
 type FanPayload struct {
@@ -84,7 +84,7 @@ func StartDiskPoller(baseURL string, token string) {
 }
 
 func sendDiskData(url string, token string) {
-	disks := GetSmartStatus()
+	disks := GetAdvancedDiskStatus()
 	if disks == nil {
 		return
 	}
