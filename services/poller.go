@@ -40,7 +40,7 @@ func StartCpuPoller(baseURL string, token string) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	fullURL := baseURL + "/api/v1/hardware/cpu"
+	fullURL := baseURL + "api/v1/hardware/cpu"
 	fmt.Printf(" [Воркер CPU] Запущен. Эндпоинт: %s\n", fullURL)
 
 	// Первый запуск сразу
@@ -74,7 +74,7 @@ func StartDiskPoller(baseURL string, token string) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
-	fullURL := baseURL + "/api/v1/hardware/disks"
+	fullURL := baseURL + "api/v1/hardware/disks"
 	fmt.Printf(" [Воркер Disks] Запущен. Эндпоинт: %s\n", fullURL)
 
 	// Первый запуск сразу
@@ -106,7 +106,7 @@ func StartFansPoller(baseURL string, token string) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
-	fullURL := baseURL + "/api/v1/hardware/fans"
+	fullURL := baseURL + "api/v1/hardware/fans"
 	fmt.Printf(" [Воркер Fans] Запущен. Эндпоинт: %s\n", fullURL)
 
 	// Первый быстрый запуск
@@ -138,7 +138,7 @@ func SendStaticHardwareInfo(baseURL string, token string) {
 	fmt.Println(" [i] Сбор паспортных данных системы (CPU, RAM, Motherboard)...")
 
 	info := GetHardwareStaticInfo()
-	fullURL := baseURL + "/api/v1/hardware/info"
+	fullURL := baseURL + "api/v1/hardware/info"
 
 	payload := InfoPayload{
 		Token:     token,
