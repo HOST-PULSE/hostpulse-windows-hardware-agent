@@ -6,43 +6,76 @@ import (
 
 	"github.com/yusufpapurcu/wmi"
 )
-
-// MSAcpi_ThermalZoneTemperature — WMI класс Windows для температурных зон
 type MSAcpi_ThermalZoneTemperature struct {
 	InstanceName       string
-	CurrentTemperature uint32 // Значение в десятых долях Кельвина
+	CurrentTemperature uint32 // В десятых долях Кельвина
 }
 
-// CpuTempStatus — структура для передачи данных о температуре процессора
+// Класс №2: Для серверных Windows (Server 2012 R2 / 2016 / 2019)
+type Win32_PerfFormattedData_Counters_ThermalZoneInformation struct {
+	Name        string
+	Temperature uint32 // В Кельвинах
+}
+
 type CpuTempStatus struct {
 	ZoneName string  `json:"zone_name"`
 	Celsius  float64 `json:"celsius"`
 }
 
-// GetCpuTemperatures опрашивает WMI и возвращает срез температур
+// GetCpuTemperatures собирает исключительно ТЕМПЕРАТУРУ из доступных системных источников
 func GetCpuTemperatures() []CpuTempStatus {
-	var dst []MSAcpi_ThermalZoneTemperature
-	query := "SELECT InstanceName, CurrentTemperature FROM MSAcpi_ThermalZoneTemperature"
+	// --- ПОПЫТКА 1: Классический ACPI WMI (для обычных ПК) ---
+	var dstAcpi []MSAcpi_ThermalZoneTemperature
+	queryAcpi := "SELECT InstanceName, CurrentTemperature FROM MSAcpi_ThermalZoneTemperature"
 
-	// Запрашиваем из пространства root\wmi (требуются права администратора)
-	err := wmi.QueryNamespace(query, &dst, `root\wmi`)
-	if err != nil {
-		fmt.Printf(" [❌ ERROR] Не удалось получить температуру CPU: %v\n", err)
-		return nil
+	errAcpi := wmi.QueryNamespace(queryAcpi, &dstAcpi, `root\wmi`)
+	if errAcpi == nil && len(dstAcpi) > 0 {
+		var results []CpuTempStatus
+		for _, zone := range dstAcpi {
+			// Перевод из десятых долей Кельвина в Цельсий
+			celsius := (float64(zone.CurrentTemperature) / 10.0) - 273.15
+			results = append(results, CpuTempStatus{
+				ZoneName: zone.InstanceName,
+				Celsius:  math.Round(celsius*10) / 10,
+			})
+		}
+		return results
 	}
 
-	var results []CpuTempStatus
-	for _, zone := range dst {
-		// Переводим Кельвины*10 в нормальные градусы Цельсия
-		kelvin := float64(zone.CurrentTemperature) / 10.0
-		celsius := kelvin - 273.15
-		celsiusRounded := math.Round(celsius*10) / 10
+	// --- ПОПЫТКА 2: Серверный счетчик (Специально для Windows Server 2012 R2) ---
+	var dstServer []Win32_PerfFormattedData_Counters_ThermalZoneInformation
+	queryServer := "SELECT Name, Temperature FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation"
 
-		results = append(results, CpuTempStatus{
-			ZoneName: zone.InstanceName,
-			Celsius:  celsiusRounded,
-		})
+	// Запрашиваем из стандартного пространства root\cimv2 (работает на серверах)
+	errServer := wmi.Query(queryServer, &dstServer)
+	if errServer == nil && len(dstServer) > 0 {
+		var results []CpuTempStatus
+		for _, zone := range dstServer {
+			// Этот счетчик возвращает температуру в чистых Кельвинах
+			celsius := float64(zone.Temperature) - 273.15
+
+			// Иногда старые материнские платы возвращают некорректный 0 в Кельвинах, фильтруем его
+			if zone.Temperature > 0 {
+				results = append(results, CpuTempStatus{
+					ZoneName: zone.Name,
+					Celsius:  math.Round(celsius*10) / 10,
+				})
+			}
+		}
+
+		// Если данные успешно собраны, возвращаем их
+		if len(results) > 0 {
+			return results
+		}
 	}
 
-	return results
+	// --- ПОПЫТКА 3: Крайний случай (Если ОС наглухо закрыла все датчики) ---
+	// Чтобы воркер CPU не прерывал выполнение по return и слал пустые пакеты на бэкенд
+	fmt.Println(" [⚠️ CPU] Аппаратные датчики температуры заблокированы политиками Windows Server.")
+	return []CpuTempStatus{
+		{
+			ZoneName: "ACPI_Sensors_Disabled_By_OS",
+			Celsius:  -1.0, // Маркер для панели, что датчики недоступны
+		},
+	}
 }

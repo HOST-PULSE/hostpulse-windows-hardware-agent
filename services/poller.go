@@ -52,10 +52,8 @@ func StartCpuPoller(baseURL string, token string) {
 }
 
 func sendCpuData(url string, token string) {
+	// Теперь эта функция никогда не вернет nil на Windows Server 2012 R2
 	temps := GetCpuTemperatures()
-	if temps == nil {
-		return // Если ошибка чтения, не спамим бэкенд пустышками
-	}
 
 	payload := CpuPayload{
 		Token:        token,
@@ -64,7 +62,7 @@ func sendCpuData(url string, token string) {
 	}
 
 	if jsonData, err := json.Marshal(payload); err == nil {
-		sendRequest(url, jsonData, "CPU",token)
+		sendRequest(url, jsonData, "CPU", token)
 	}
 }
 
