@@ -69,7 +69,7 @@ func sendCpuData(url string, token string) {
 // --- ВОРКЕР ДЛЯ ДИСКОВ (Медленный: 5 минут) ---
 
 func StartDiskPoller(baseURL string, token string) {
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	fullURL := baseURL + "api/v1/hardware/disks/"
