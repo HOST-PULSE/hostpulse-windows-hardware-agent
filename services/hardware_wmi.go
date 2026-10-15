@@ -40,69 +40,69 @@ type AdvancedDiskStatus struct {
 func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	log.Println("[💾 DISK SERVICE] Сбор расширенной статистики дисков...")
 
-	// 1. Запрашиваем физические параметры из пространства Storage
-	var storageData []MSFT_PhysicalDisk
-	queryStorage := "SELECT DeviceId, FriendlyName, MediaType, BusType, OperationalStatus, HealthStatus FROM MSFT_PhysicalDisk"
-	err := wmi.QueryNamespace(queryStorage, &storageData, `root\Microsoft\Windows\Storage`)
-	if err != nil {
-		log.Printf("[❌ ERROR] Ошибка запроса к MSFT_PhysicalDisk: %v", err)
-		return nil
-	}
-
-	// 2. Запрашиваем системные счетчики ошибок из CIMV2
-	var driveData []Win32_DiskDrive
-	queryDrive := "SELECT DeviceID, InterfaceType, ConfigManagerErrorCode FROM Win32_DiskDrive"
-	wmi.Query(queryDrive, &driveData) // не критично если упадет, подстрахует первый запрос
-
-	// Создаем мапу для быстрого маппинга счетчиков ошибок по DeviceID
-	errorMap := make(map[string]uint32)
-	for _, d := range driveData {
-		// Приводим к единому формату для сравнения (убираем префиксы вроде \\.\)
-		id := strings.TrimPrefix(d.DeviceID, `\\.\`)
-		errorMap[id] = d.ConfigManagerErrorCode
-	}
-
 	var results []AdvancedDiskStatus
-	for _, disk := range storageData {
-		// Определение типа медиа (SSD / HDD)
-		mediaType := "Unknown"
-		if disk.MediaType == 3 {
-			mediaType = "HDD"
-		} else if disk.MediaType == 4 {
-			mediaType = "SSD"
-		}
 
-		// Определение интерфейса (SATA / NVMe и т.д.)
-		busType := "Unknown"
-		switch disk.BusType {
-		case 11: busType = "SATA"
-		case 17: busType = "NVMe"
-		case 7:  busType = "USB"
-		case 8:  busType = "RAID"
-		}
+	// 1. Пробуем современный метод (Storage Namespace)
+	var storageData []MSFT_PhysicalDisk
+	queryStorage := "SELECT DeviceId, FriendlyName, MediaType, BusType, HealthStatus FROM MSFT_PhysicalDisk"
+	err := wmi.QueryNamespace(queryStorage, &storageData, `root\Microsoft\Windows\Storage`)
 
-		// Текстовый статус здоровья
-		health := "Unknown"
-		switch disk.HealthStatus {
-		case 0: health = "Healthy"
-		case 1: health = "Warning"
-		case 2: health = "Unhealthy"
-		}
+	// Если этот метод поддерживается ОС
+	if err == nil && len(storageData) > 0 {
+		for _, disk := range storageData {
+			mediaType := "Unknown"
+			if disk.MediaType == 3 { mediaType = "HDD" } else if disk.MediaType == 4 { mediaType = "SSD" }
 
-		// Ищем код аппаратной ошибки из Диспетчера Устройств Windows для этого диска
-		hwError, exists := errorMap["PHYSICALDRIVE"+disk.DeviceId]
-		if !exists {
-			hwError = 0
+			busType := "Unknown"
+			switch disk.BusType {
+			case 11: busType = "SATA"
+			case 17: busType = "NVMe"
+			case 7:  busType = "USB"
+			}
+
+			health := "Unknown"
+			switch disk.HealthStatus {
+			case 0: health = "Healthy"
+			case 1: health = "Warning"
+			case 2: health = "Unhealthy"
+			}
+
+			results = append(results, AdvancedDiskStatus{
+				DeviceID:     "PHYSICALDRIVE" + disk.DeviceId,
+				Model:        disk.FriendlyName,
+				Type:         mediaType,
+				Interface:    busType,
+				HealthStatus: health,
+				IsHealthy:    disk.HealthStatus == 0,
+			})
 		}
+		return results
+	}
+
+	// 2. БЕЗОПАСНЫЙ ОТКАТ: Если старая ОС, используем классический Win32_DiskDrive
+	log.Println("[⚠️ WARNING] MSFT_PhysicalDisk недоступен. Откат на Win32_DiskDrive...")
+	var driveData []Win32_DiskDrive
+	queryDrive := "SELECT DeviceID, Caption, Status FROM Win32_DiskDrive"
+
+	err = wmi.Query(queryDrive, &driveData)
+	if err != nil {
+		log.Printf("[❌ CRITICAL ERROR] Все методы опроса дисков провалились: %v", err)
+		return []AdvancedDiskStatus{} // Возвращаем пустой массив вместо паники
+	}
+
+	for _, disk := range driveData {
+		id := strings.TrimPrefix(disk.DeviceID, `\\.\`)
+		isHealthy := disk.Status == "OK"
+		healthStatus := "Healthy"
+		if !isHealthy { healthStatus = "Unhealthy" }
 
 		results = append(results, AdvancedDiskStatus{
-			DeviceID:       "PHYSICALDRIVE" + disk.DeviceId,
-			Model:          disk.FriendlyName,
-			Type:           mediaType,
-			Interface:      busType,
-			HealthStatus:   health,
-			IsHealthy:      disk.HealthStatus == 0,
-			HardwareErrors: hwError,
+			DeviceID:     id,
+			Model:        disk.Caption,
+			Type:         "Unknown", // Win32_DiskDrive не знает точный тип SSD/HDD
+			Interface:    "Unknown",
+			HealthStatus: healthStatus,
+			IsHealthy:    isHealthy,
 		})
 	}
 
