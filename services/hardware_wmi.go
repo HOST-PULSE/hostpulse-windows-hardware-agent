@@ -2,7 +2,7 @@ package services
 
 import (
 	"log"
-	"time"
+	"strings"
 	"github.com/yusufpapurcu/wmi"
 )
 // MSFT_PhysicalDisk содержит расширенные свойства диска в современных Windows
