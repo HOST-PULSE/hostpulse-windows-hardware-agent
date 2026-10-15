@@ -5,64 +5,106 @@ import (
 	"time"
 	"github.com/yusufpapurcu/wmi"
 )
-// Win32_DiskDrive — стандартный WMI класс, доступный во всех версиях Windows
+// MSFT_PhysicalDisk содержит расширенные свойства диска в современных Windows
+type MSFT_PhysicalDisk struct {
+	DeviceId          string
+	FriendlyName      string
+	MediaType         uint16 // 3 = HDD, 4 = SSD, 0 = Unspecified
+	BusType           uint16 // 3 = ATAPI, 8 = RAID, 11 = SATA, 17 = NVMe т.д.
+	OperationalStatus []uint16 // Массив статусов. 1 = OK, 3 = Degraded, 5 = Predictive Failure
+	HealthStatus      uint16 // 0 = Healthy, 1 = Warning, 2 = Unhealthy
+}
+
+// Win32_DiskDrive используется для получения железных счетчиков ошибок
 type Win32_DiskDrive struct {
-	DeviceID    string
-	Caption     string // Понятное название модели (например, "Samsung SSD 970 EVO")
-	Status      string // Статус здоровья: "OK", "Degraded", "Pred Fail"
-	Size        uint64 // Общий объем диска в байтах
+	DeviceID      string
+	InterfaceType string // SCSI, HDC, IDE
+	SectorsPerTrack uint32
+	TotalSectors    uint64
+	// Встроенные счетчики ошибок Windows (растут при аппаратных проблемах)
+	Capabilities      []uint16 // Возможности диска
+	ConfigManagerErrorCode uint32 // Код ошибки диспетчера устройств (0 = ок)
 }
 
-// DiskStatus представляет структуру диска для отправки на бэкенд HostPulse
-type DiskStatus struct {
-	DeviceID  string `json:"device_id"`
-	IsHealthy bool   `json:"is_healthy"` // true = всё ок, false = SMART бьет тревогу
+// AdvancedDiskStatus собирает абсолютно все доступные метрики диска
+type AdvancedDiskStatus struct {
+	DeviceID       string `json:"device_id"`
+	Model          string `json:"model"`
+	Type           string `json:"type"`       // SSD, HDD, NVMe, Unknown
+	Interface      string `json:"interface"`  // SATA, NVMe, SCSI, USB
+	HealthStatus   string `json:"health_status"` // Healthy, Warning, Unhealthy
+	IsHealthy      bool   `json:"is_healthy"`
+	HardwareErrors uint32 `json:"hardware_errors_code"` // 0 если все отлично на уровне ОС
 }
 
-// GetSmartStatus собирает состояние SMART и параметры по всем дискам
-func GetSmartStatus() []DiskStatus {
-	start := time.Now()
-	log.Println("[💾 DISK SERVICE] Запуск опроса физических дисков через WMI...")
+func GetAdvancedDiskStatus() []AdvancedDiskStatus {
+	log.Println("[💾 DISK SERVICE] Сбор расширенной статистики дисков...")
 
-	var dst []Win32_DiskDrive
-	// Запрашиваем DeviceID, модель, статус и размер из дефолтного root\CIMV2
-	query := "SELECT DeviceID, Caption, Status, Size FROM Win32_DiskDrive"
-
-	err := wmi.Query(query, &dst)
+	// 1. Запрашиваем физические параметры из пространства Storage
+	var storageData []MSFT_PhysicalDisk
+	queryStorage := "SELECT DeviceId, FriendlyName, MediaType, BusType, OperationalStatus, HealthStatus FROM MSFT_PhysicalDisk"
+	err := wmi.QueryNamespace(queryStorage, &storageData, `root\Microsoft\Windows\Storage`)
 	if err != nil {
-		log.Printf("[❌ ERROR] Ошибка выполнения WMI-запроса к Win32_DiskDrive: %v", err)
+		log.Printf("[❌ ERROR] Ошибка запроса к MSFT_PhysicalDisk: %v", err)
 		return nil
 	}
 
-	totalDisks := len(dst)
-	if totalDisks == 0 {
-		log.Println("[⚠️ WARNING] WMI запрос вернул 0 физических дисков в системе.")
-		return []DiskStatus{}
+	// 2. Запрашиваем системные счетчики ошибок из CIMV2
+	var driveData []Win32_DiskDrive
+	queryDrive := "SELECT DeviceID, InterfaceType, ConfigManagerErrorCode FROM Win32_DiskDrive"
+	wmi.Query(queryDrive, &driveData) // не критично если упадет, подстрахует первый запрос
+
+	// Создаем мапу для быстрого маппинга счетчиков ошибок по DeviceID
+	errorMap := make(map[string]uint32)
+	for _, d := range driveData {
+		// Приводим к единому формату для сравнения (убираем префиксы вроде \\.\)
+		id := strings.TrimPrefix(d.DeviceID, `\\.\`)
+		errorMap[id] = d.ConfigManagerErrorCode
 	}
 
-	log.Printf("[🔍 DISK SERVICE] Найдено физических дисков в системе: %d", totalDisks)
-
-	var results []DiskStatus
-	for i, disk := range dst {
-		// Проверяем статус здоровья диска
-		isHealthy := disk.Status == "OK"
-		sizeGb := disk.Size / (1024 * 1024 * 1024) // Переводим байты в гигабайты для лога
-
-		log.Printf(
-			"  └─ [#%d] Диск: %s | Модель: %s | Размер: %d GB | Статус WMI: %s | Здоров: %t",
-			i+1, disk.DeviceID, disk.Caption, sizeGb, disk.Status, isHealthy,
-		)
-
-		if !isHealthy {
-			log.Printf("[🚨 SMART CRITICAL] Внимание! Диск %s (%s) сообщает о проблемах со здоровьем!", disk.DeviceID, disk.Caption)
+	var results []AdvancedDiskStatus
+	for _, disk := range storageData {
+		// Определение типа медиа (SSD / HDD)
+		mediaType := "Unknown"
+		if disk.MediaType == 3 {
+			mediaType = "HDD"
+		} else if disk.MediaType == 4 {
+			mediaType = "SSD"
 		}
 
-		results = append(results, DiskStatus{
-			DeviceID:  disk.DeviceID,
-			IsHealthy: isHealthy,
+		// Определение интерфейса (SATA / NVMe и т.д.)
+		busType := "Unknown"
+		switch disk.BusType {
+		case 11: busType = "SATA"
+		case 17: busType = "NVMe"
+		case 7:  busType = "USB"
+		case 8:  busType = "RAID"
+		}
+
+		// Текстовый статус здоровья
+		health := "Unknown"
+		switch disk.HealthStatus {
+		case 0: health = "Healthy"
+		case 1: health = "Warning"
+		case 2: health = "Unhealthy"
+		}
+
+		// Ищем код аппаратной ошибки из Диспетчера Устройств Windows для этого диска
+		hwError, exists := errorMap["PHYSICALDRIVE"+disk.DeviceId]
+		if !exists {
+			hwError = 0
+		}
+
+		results = append(results, AdvancedDiskStatus{
+			DeviceID:       "PHYSICALDRIVE" + disk.DeviceId,
+			Model:          disk.FriendlyName,
+			Type:           mediaType,
+			Interface:      busType,
+			HealthStatus:   health,
+			IsHealthy:      disk.HealthStatus == 0,
+			HardwareErrors: hwError,
 		})
 	}
 
-	log.Printf("[✅ SUCCESS] Опрос дисков завершен за %v. Подготовлено к отправке: %d записей.", time.Since(start), len(results))
 	return results
 }
