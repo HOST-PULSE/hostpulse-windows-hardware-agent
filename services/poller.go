@@ -40,7 +40,7 @@ func StartCpuPoller(baseURL string, token string) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	fullURL := baseURL + "/api/hardware/cpu"
+	fullURL := baseURL + "/api/v1/hardware/cpu"
 	fmt.Printf(" [Воркер CPU] Запущен. Эндпоинт: %s\n", fullURL)
 
 	// Первый запуск сразу
@@ -74,7 +74,7 @@ func StartDiskPoller(baseURL string, token string) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
-	fullURL := baseURL + "/api/hardware/disks"
+	fullURL := baseURL + "/api/v1/hardware/disks"
 	fmt.Printf(" [Воркер Disks] Запущен. Эндпоинт: %s\n", fullURL)
 
 	// Первый запуск сразу
@@ -106,7 +106,7 @@ func StartFansPoller(baseURL string, token string) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
-	fullURL := baseURL + "/api/hardware/fans"
+	fullURL := baseURL + "/api/v1/hardware/fans"
 	fmt.Printf(" [Воркер Fans] Запущен. Эндпоинт: %s\n", fullURL)
 
 	// Первый быстрый запуск
@@ -138,7 +138,7 @@ func SendStaticHardwareInfo(baseURL string, token string) {
 	fmt.Println(" [i] Сбор паспортных данных системы (CPU, RAM, Motherboard)...")
 
 	info := GetHardwareStaticInfo()
-	fullURL := baseURL + "/api/hardware/info"
+	fullURL := baseURL + "/api/v1/hardware/info"
 
 	payload := InfoPayload{
 		Token:     token,
@@ -161,7 +161,7 @@ func sendRequest(url string, jsonData []byte, workerName string, token string) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-Type", "agent-hardware-windows")
+	req.Header.Set("X-Agent-Type", "agent_hardware_windows")
 	req.Header.Set("X-Agent-Token", token)
 	client := &http.Client{Timeout: 4 * time.Second}
 	resp, err := client.Do(req)
