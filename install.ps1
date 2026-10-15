@@ -1,4 +1,4 @@
-install.ps1 param (
+param (
     [string]$URL = "https://hostpulse.link/", # Базовый URL бэкенда HostPulse
     [string]$TOKEN = "",
     [string]$PASSWORD = ""
