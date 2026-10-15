@@ -17,13 +17,14 @@ type MSFT_PhysicalDisk struct {
 
 // Win32_DiskDrive используется для получения железных счетчиков ошибок
 type Win32_DiskDrive struct {
-	DeviceID      string
-	InterfaceType string // SCSI, HDC, IDE
-	SectorsPerTrack uint32
-	TotalSectors    uint64
-	// Встроенные счетчики ошибок Windows (растут при аппаратных проблемах)
-	Capabilities      []uint16 // Возможности диска
-	ConfigManagerErrorCode uint32 // Код ошибки диспетчера устройств (0 = ок)
+	DeviceID               string
+	Caption                string // <-- Добавлено: модель диска (например, "Samsung SSD 980")
+	Status                 string // <-- Добавлено: статус здоровья ("OK", "Pred Fail")
+	InterfaceType          string // SCSI, HDC, IDE
+	SectorsPerTrack        uint32
+	TotalSectors           uint64
+	Capabilities           []uint16 // Возможности диска
+	ConfigManagerErrorCode uint32   // Код ошибки диспетчера устройств (0 = ок)
 }
 
 // AdvancedDiskStatus собирает абсолютно все доступные метрики диска
