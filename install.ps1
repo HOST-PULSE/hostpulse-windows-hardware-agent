@@ -76,7 +76,7 @@ Write-Output "Registering Windows Service..."
 # 7. Устанавливаем переменные окружения для службы
 # Исправлено: Убрали "api/v1/metrics/", так как Go-код сам добавляет нужные эндпоинты
 $EnvPayload = @(
-    "HOSTPULSE_HARDWARE_URL=$URL",
+    "HOSTPULSE_HARDWARE_URL=${URL}",
     "HOSTPULSE_TOKEN=$TOKEN",
     "HOSTPULSE_SECRET=$PASSWORD"
 ) -join "`n"
