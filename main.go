@@ -1,13 +1,30 @@
 package main
 
 import (
-	
+	_ "embed"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"windows-hardware-agent/services"
 )
+
+//go:embed smartctl.exe
+var smartctlBytes []byte
+
+// Кастомный писатель, который сбрасывает кэш Windows при каждой строчке лога
+type syncWriter struct {
+	file *os.File
+}
+
+func (sw syncWriter) Write(p []byte) (n int, err error) {
+	n, err = sw.file.Write(p)
+	if err == nil {
+		sw.file.Sync() // Жесткий пробой буфера ОС на диск
+	}
+	return n, err
+}
 
 func initLogger() {
 	targetDir := "C:\\Program Files\\HostPulse"
@@ -16,16 +33,17 @@ func initLogger() {
 	}
 	logFilePath := filepath.Join(targetDir, "agent.log")
 
-	// Открываем файл. Если его нет, Go попытается его создать.
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
-		// Если Windows блокирует создание в Program Files, откатываемся в Temp
-		altPath := filepath.Join(os.TempDir(), "hostpulse_agent.log")
-		logFile, _ = os.OpenFile(altPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		fmt.Printf(" [❌ ERROR] Не удалось открыть лог: %v\n", err)
+		return
 	}
 
-	// Настраиваем запись одновременно в консоль и в файл
-	mw := io.MultiWriter(os.Stdout, logFile)
+	// Оборачиваем файл в синхронный писатель
+	synchronizedTarget := syncWriter{file: logFile}
+
+	// Связываем MultiWriter
+	mw := io.MultiWriter(os.Stdout, synchronizedTarget)
 	log.SetOutput(mw)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
@@ -37,26 +55,20 @@ func main() {
 	log.Println("=== Агент мониторинга железа HostPulse под Windows запущен ===")
 	log.Println("=======================================================")
 
+	services.SetSmartctlBinary(smartctlBytes)
+
 	metricsURL := os.Getenv("HOSTPULSE_HARDWARE_URL")
-	if metricsURL == "" {
-		metricsURL = "https://zedform.kz"
-	}
+	if metricsURL == "" { metricsURL = "https://zedform.kz" }
 
 	agentToken := os.Getenv("HOSTPULSE_TOKEN")
-	if agentToken == "" {
-		log.Println(" [⚠️ WARNING] HOSTPULSE_TOKEN не задан. Используется дефолтный токен.")
-		agentToken = "default_hardware_token_123"
-	}
+	if agentToken == "" { agentToken = "default_hardware_token_123" }
 
 	log.Printf(" [INFO] Базовый эндпоинт: %s\n", metricsURL)
 
-	// Отправляем паспорт сервера
 	services.SendStaticHardwareInfo(metricsURL, agentToken)
 
-	// Запускаем воркеры сбора метрик в фоновых горутинах
 	go services.StartDiskPoller(metricsURL, agentToken)
 	go services.StartFansPoller(metricsURL, agentToken)
 
-	// Блокируем главный поток для непрерывной работы службы
 	select {}
 }
