@@ -1,74 +1,65 @@
 package main
 
 import (
-	_ "embed"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	// Замените на ваш актуальный модуль из go.mod
 	"windows-hardware-agent/services"
 )
-
-////go:embed smartctl.exe
-//var smartctlBytes []byte
-
-// Кастомный писатель, который сбрасывает кэш Windows при каждой строчке лога
-type syncWriter struct {
-	file *os.File
-}
-
-func (sw syncWriter) Write(p []byte) (n int, err error) {
-	n, err = sw.file.Write(p)
-	if err == nil {
-		sw.file.Sync() // Жесткий пробой буфера ОС на диск
-	}
-	return n, err
-}
-
 func initLogger() {
-	targetDir := "C:\\Program Files\\HostPulse"
-	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
-		targetDir = "."
+	// Получаем путь к папке, где лежит запущенный бинарник
+	exePath, err := os.Executable()
+	if err != nil {
+		exePath = "."
 	}
-	logFilePath := filepath.Join(targetDir, "agent.log")
+	exeDir := filepath.Dir(exePath)
+	logFilePath := filepath.Join(exeDir, "agent.log")
 
+	// Открываем или создаем файл agent.log в режиме добавления записи
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
-		fmt.Printf(" [❌ ERROR] Не удалось открыть лог: %v\n", err)
+		fmt.Printf(" [❌ ERROR] Не удалось создать файл лога: %v\n", err)
 		return
 	}
 
-	// Оборачиваем файл в синхронный писатель
-	synchronizedTarget := syncWriter{file: logFile}
-
-	// Связываем MultiWriter
-	mw := io.MultiWriter(os.Stdout, synchronizedTarget)
+	// Настраиваем вывод: и в файл, и в стандартную консоль одновременно (MultiWriter)
+	mw := io.MultiWriter(os.Stdout, logFile)
 	log.SetOutput(mw)
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-}
 
+	// Перенаправляем стандартные системные выводы операционной системы (Опционально)
+	os.Stdout = logFile
+	os.Stderr = logFile
+}
 func main() {
 	initLogger()
 
-	log.Println("\n=======================================================")
-	log.Println("=== Агент мониторинга железа HostPulse под Windows запущен ===")
-	log.Println("=======================================================")
+	fmt.Println("\n=======================================================")
+	fmt.Println("=== Агент мониторинга железа HostPulse под Windows запущен ===")
+	fmt.Println("=======================================================\n")
 
-	//services.SetSmartctlBinary(smartctlBytes)
 
 	metricsURL := os.Getenv("HOSTPULSE_HARDWARE_URL")
-	if metricsURL == "" { metricsURL = "https://zedform.kz" }
+	if metricsURL == "" {
+		metricsURL = "https://zedform.kz"
+	}
 
 	agentToken := os.Getenv("HOSTPULSE_TOKEN")
-	if agentToken == "" { agentToken = "default_hardware_token_123" }
+	if agentToken == "" {
+		fmt.Println(" [⚠️ WARNING] HOSTPULSE_TOKEN не задан. Используется дефолтный токен.\n")
+		agentToken = "default_hardware_token_123"
+	}
 
-	log.Printf(" [INFO] Базовый эндпоинт: %s\n", metricsURL)
-
+	fmt.Printf(" [INFO] Базовый эндпоинт: %s\n", metricsURL)
 	services.SendStaticHardwareInfo(metricsURL, agentToken)
-
+	// Запускаем каждый воркер в своей отдельной горутине
+	//go services.StartCpuPoller(metricsURL, agentToken)
 	//go services.StartDiskPoller(metricsURL, agentToken)
 	//go services.StartFansPoller(metricsURL, agentToken)
 
+	// Блокируем главный поток, чтобы агент работал бесконечно
 	select {}
 }
+
