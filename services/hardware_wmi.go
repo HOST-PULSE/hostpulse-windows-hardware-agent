@@ -1,7 +1,7 @@
 package services
 
 import (
-	"log"
+	
 	"strings"
 	"fmt"
 	"github.com/yusufpapurcu/wmi"
