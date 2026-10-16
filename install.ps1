@@ -60,22 +60,23 @@ if (!(Test-Path $NssmPath)) {
 }
 
 # 6. Скачиваем NSSM по жесткому абсолютному пути
-$NssmPath = "$TargetDir\smartctl.exe"
-if (!(Test-Path $NssmPath)) {
+$SmartPath = "$TargetDir\smartctl.exe"
+if (!(Test-Path $SmartPath)) {
     Write-Output "Downloading smartctl component..."
-    $NssmUrl = "https://raw.githubusercontent.com/HOST-PULSE/hostpulse-windows-hardware-agent/main/smartctl.exe"
+    $SmartUrl = "https://raw.githubusercontent.com/HOST-PULSE/hostpulse-windows-hardware-agent/main/smartctl.exe"
     try {
-        Invoke-WebRequest -Uri $NssmUrl -OutFile $NssmPath -UseBasicParsing
+        Invoke-WebRequest -Uri $SmartUrl -OutFile $SmartPath -UseBasicParsing
     } catch {
-        (New-Object System.Net.WebClient).DownloadFile($NssmUrl, $NssmPath)
+        (New-Object System.Net.WebClient).DownloadFile($SmartUrl, $SmartPath)
     }
 }
 
 # Дополнительная проверка на физическое наличие файлов на диске перед установкой
-if (!(Test-Path $NssmPath) -or !(Test-Path $AgentPath)) {
+if (!(Test-Path $NssmPath) -or !(Test-Path $AgentPath) -or !(Test-Path $SmartPath)) {
     Write-Output "Error: Critical components download failed!"
     exit 1
 }
+
 
 Write-Output "Registering Windows Service..."
 
