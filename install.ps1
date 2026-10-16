@@ -36,7 +36,7 @@ if (!(Test-Path $TargetDir)) {
 }
 
 # 4. Скачиваем свежий скомпилированный EXE-файл агента из релизов GitHub
-$AgentDownloadUrl = "https://github.com/HOST-PULSE/hostpulse-windows-hardware-agent/releases/download/v1.0.58/windows-hardware-agent.exe"
+$AgentDownloadUrl = "https://github.com/HOST-PULSE/hostpulse-windows-hardware-agent/releases/download/v1.0.59/windows-hardware-agent.exe"
 $AgentPath = "$TargetDir\hostpulse_hardware_agent.exe"
 
 Write-Output "Downloading agent binary..."
