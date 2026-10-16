@@ -119,7 +119,7 @@ func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, temperatu
 }
 
 func GetAdvancedDiskStatus() []AdvancedDiskStatus {
-	WriteToLog(" [💾 DISK SERVICE] Сбор расширенной статистики дисков...")
+	fmt.Println(" [💾 DISK SERVICE] Сбор расширенной статистики дисков...")
 	var results []AdvancedDiskStatus
 
 	// 1. Пытаемся получить список дисков через современный метод Storage Namespace
@@ -128,7 +128,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	err := wmi.QueryNamespace(queryStorage, &storageData, `root\Microsoft\Windows\Storage`)
 
 	if err == nil && len(storageData) > 0 {
-		WriteToLog(fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через MSFT_PhysicalDisk\n", len(storageData)))
+		fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через MSFT_PhysicalDisk\n", len(storageData))
 		for _, disk := range storageData {
 			mediaType := "Unknown"
 			if disk.MediaType == 3 { mediaType = "HDD" } else if disk.MediaType == 4 { mediaType = "SSD" }
