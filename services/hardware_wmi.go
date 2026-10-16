@@ -276,12 +276,13 @@ func GetSmartNative(deviceID string) (reallocated uint32, temperature uint8, hou
 	outBuffer := make([]byte, 16+512)
 	var bytesReturned uint32
 
+	// ИСПРАВЛЕНО: Передаем указатель на первый элемент буфера &outBuffer[0]
 	err = syscall.DeviceIoControl(
 		handle,
 		IOCTL_SMART_RCV_DRIVE_DATA,
 		(*byte)(unsafe.Pointer(&scip)),
 		uint32(unsafe.Sizeof(scip)),
-		&outBuffer,
+		&outBuffer[0], // Изменено с &outBuffer на &outBuffer[0]
 		uint32(len(outBuffer)),
 		&bytesReturned,
 		nil,
