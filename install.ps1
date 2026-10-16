@@ -36,7 +36,7 @@ if (!(Test-Path $TargetDir)) {
 }
 
 # 4. Скачиваем свежий скомпилированный EXE-файл агента из релизов GitHub
-$AgentDownloadUrl = "https://github.com/HOST-PULSE/hostpulse-windows-hardware-agent/releases/download/v1.0.36/windows-hardware-agent.exe"
+$AgentDownloadUrl = "https://github.com/HOST-PULSE/hostpulse-windows-hardware-agent/releases/download/v1.0.37/windows-hardware-agent.exe"
 $AgentPath = "$TargetDir\hostpulse_hardware_agent.exe"
 
 Write-Output "Downloading agent binary..."
@@ -52,6 +52,18 @@ $NssmPath = "$TargetDir\nssm.exe"
 if (!(Test-Path $NssmPath)) {
     Write-Output "Downloading NSSM component..."
     $NssmUrl = "https://raw.githubusercontent.com/HOST-PULSE/hostpulse-windows-hardware-agent/main/nssm.exe"
+    try {
+        Invoke-WebRequest -Uri $NssmUrl -OutFile $NssmPath -UseBasicParsing
+    } catch {
+        (New-Object System.Net.WebClient).DownloadFile($NssmUrl, $NssmPath)
+    }
+}
+
+# 6. Скачиваем NSSM по жесткому абсолютному пути
+$NssmPath = "$TargetDir\smartctl.exe"
+if (!(Test-Path $NssmPath)) {
+    Write-Output "Downloading smartctl component..."
+    $NssmUrl = "https://raw.githubusercontent.com/HOST-PULSE/hostpulse-windows-hardware-agent/main/smartctl.exe"
     try {
         Invoke-WebRequest -Uri $NssmUrl -OutFile $NssmPath -UseBasicParsing
     } catch {
