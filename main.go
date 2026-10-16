@@ -10,8 +10,8 @@ import (
 	"windows-hardware-agent/services"
 )
 
-//go:embed smartctl.exe
-var smartctlBytes []byte
+////go:embed smartctl.exe
+//var smartctlBytes []byte
 
 // Кастомный писатель, который сбрасывает кэш Windows при каждой строчке лога
 type syncWriter struct {
@@ -67,8 +67,8 @@ func main() {
 
 	services.SendStaticHardwareInfo(metricsURL, agentToken)
 
-	go services.StartDiskPoller(metricsURL, agentToken)
-	go services.StartFansPoller(metricsURL, agentToken)
+	//go services.StartDiskPoller(metricsURL, agentToken)
+	//go services.StartFansPoller(metricsURL, agentToken)
 
 	select {}
 }
