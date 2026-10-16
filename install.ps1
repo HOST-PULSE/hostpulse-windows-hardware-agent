@@ -59,24 +59,24 @@ if (!(Test-Path $NssmPath)) {
     }
 }
 
-# # 6. Скачиваем smartctl по жесткому абсолютному пути
-# $SmartPath = "$TargetDir\smartctl.exe"
-# if (!(Test-Path $SmartPath)) {
-#     Write-Output "Downloading smartctl component..."
-#     $SmartUrl = "https://raw.githubusercontent.com/HOST-PULSE/hostpulse-windows-hardware-agent/main/smartctl.exe"
-#     try {
-#         Invoke-WebRequest -Uri $SmartUrl -OutFile $SmartPath -UseBasicParsing | Out-Null
-#     } catch {
-#         # ИСПРАВЛЕНО: Используем строго $SmartPath вместо случайного затирания $NssmPath
-#         (New-Object System.Net.WebClient).DownloadFile($SmartUrl, $SmartPath)
-#     }
-# }
-#
-# # Дополнительная проверка на физическое наличие файлов на диске перед установкой
-# if (!(Test-Path $NssmPath) -or !(Test-Path $AgentPath) -or !(Test-Path $SmartPath)) {
-#     Write-Output "Error: Critical components download failed!"
-#     exit 1
-# }
+# 6. Скачиваем smartctl по жесткому абсолютному пути
+$SmartPath = "$TargetDir\smartctl.exe"
+if (!(Test-Path $SmartPath)) {
+    Write-Output "Downloading smartctl component..."
+    $SmartUrl = "https://raw.githubusercontent.com/HOST-PULSE/hostpulse-windows-hardware-agent/main/smartctl.exe"
+    try {
+        Invoke-WebRequest -Uri $SmartUrl -OutFile $SmartPath -UseBasicParsing | Out-Null
+    } catch {
+        # ИСПРАВЛЕНО: Используем строго $SmartPath вместо случайного затирания $NssmPath
+        (New-Object System.Net.WebClient).DownloadFile($SmartUrl, $SmartPath)
+    }
+}
+
+# Дополнительная проверка на физическое наличие файлов на диске перед установкой
+if (!(Test-Path $NssmPath) -or !(Test-Path $AgentPath) -or !(Test-Path $SmartPath)) {
+    Write-Output "Error: Critical components download failed!"
+    exit 1
+}
 
 
 Write-Output "Registering Windows Service..."
