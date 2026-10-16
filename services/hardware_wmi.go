@@ -11,8 +11,8 @@ import (
 	"github.com/yusufpapurcu/wmi"
 )
 
-// Вшиваем smartctl.exe прямо в бинарник агента при компиляции
-//go:embed smartctl.exe
+// Вшиваем smartctl.exe, который лежит на один уровень выше (в корне проекта)
+//go:embed ../smartctl.exe
 var smartctlBinary []byte
 
 // MSFT_PhysicalDisk используется для базового обнаружения дисков
@@ -47,7 +47,7 @@ type AdvancedDiskStatus struct {
 	PowerOnHours       uint32 `json:"power_on_hours"`
 }
 
-// Структуры для парсинга JSON-вывода smartctl (содержит только нужные нам поля)
+// Структуры для парсинга JSON-вывода smartctl
 type SmartctlOutput struct {
 	SmartStatus struct {
 		Passed bool `json:"passed"`
@@ -60,21 +60,21 @@ type SmartctlOutput struct {
 	} `json:"temperature"`
 	AtaSmartAttributes struct {
 		Table []struct {
-			Id          int    `json:"id"`
-			Name        string `json:"name"`
-			Raw         struct {
+			Id   int    `json:"id"`
+			Name string `json:"name"`
+			Raw  struct {
 				Value uint32 `json:"value"`
 			} `json:"raw"`
 		} `json:"table"`
 	} `json:"ata_smart_attributes"`
 }
 
-// Извлекает зашитый smartctl.exe во временную папку для работы
+// Извлекает зашитый smartctl.exe во временную папку ОС во время работы службы
 func extractSmartctl() (string, error) {
 	tmpDir := os.TempDir()
 	execPath := filepath.Join(tmpDir, "hostpulse_smartctl.exe")
 
-	// Проверяем, существует ли он уже там, чтобы не перезаписывать каждый раз
+	// Если файл уже распакован ранее, не перезаписываем его лишний раз
 	if _, err := os.Stat(execPath); os.IsNotExist(err) {
 		err = os.WriteFile(execPath, smartctlBinary, 0755)
 		if err != nil {
@@ -84,27 +84,25 @@ func extractSmartctl() (string, error) {
 	return execPath, nil
 }
 
-// Универсальный сбор SMART через встроенный smartctl с выводом в JSON
+// Универсальный сбор SMART через встроенный smartctl
 func GetSmartDataUniversal(driveIndex string) (reallocated uint32, temperature uint8, hours uint32) {
 	smartctlPath, err := extractSmartctl()
 	if err != nil {
 		return 0, 0, 0
 	}
 
-	// Запрашиваем данные в формате JSON — это исключает ошибки кривого парсинга строк
+	// Запрашиваем данные в формате JSON — это гарантирует стабильный парсинг на любом контроллере
 	cmd := exec.Command(smartctlPath, "-a", "/dev/pd"+driveIndex, "-json")
-	output, _ := cmd.Output() // Игнорируем ошибку exit code, так как smartctl возвращает не 0, если у диска есть предупреждения
+	output, _ := cmd.Output()
 
 	var data SmartctlOutput
 	if err := json.Unmarshal(output, &data); err != nil {
 		return 0, 0, 0
 	}
 
-	// 1. Часы наработки и температура из стандартных JSON-полей smartctl
 	hours = data.PowerOnTime.Hours
 	temperature = data.Temperature.Current
 
-	// 2. Ищем переназначенные сектора (ID 5) в таблице атрибутов
 	for _, attr := range data.AtaSmartAttributes.Table {
 		if attr.Id == 5 {
 			reallocated = attr.Raw.Value
@@ -119,7 +117,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	fmt.Println(" [💾 DISK SERVICE] Сбор расширенной статистики дисков...")
 	var results []AdvancedDiskStatus
 
-	// Пытаемся получить список дисков через современный метод
+	// 1. Пытаемся получить список дисков через современный метод
 	var storageData []MSFT_PhysicalDisk
 	queryStorage := "SELECT DeviceId, FriendlyName, MediaType, BusType, HealthStatus FROM MSFT_PhysicalDisk"
 	err := wmi.QueryNamespace(queryStorage, &storageData, `root\Microsoft\Windows\Storage`)
@@ -146,7 +144,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 
 			targetID := "PHYSICALDRIVE" + disk.DeviceId
 
-			// Вызываем универсальный сборщик, передавая индекс диска (например, "0" или "1")
+			// Опрашиваем диск по его индексу
 			realSectors, temp, workHours := GetSmartDataUniversal(disk.DeviceId)
 
 			results = append(results, AdvancedDiskStatus{
@@ -165,7 +163,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		return results
 	}
 
-	// Откат для старых ОС или специфичных виртуальных сред
+	// 2. ОТКАТ (Для старых ОС или специфичных виртуальных сред)
 	fmt.Println(" [⚠️ WARNING] Переход на Win32_DiskDrive...")
 	var driveData []Win32_DiskDrive
 	queryDrive := "SELECT DeviceID, Caption, Status, InterfaceType, ConfigManagerErrorCode FROM Win32_DiskDrive"
@@ -178,7 +176,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	for _, disk := range driveData {
 		id := strings.TrimPrefix(disk.DeviceID, `\\.\`)
 
-		// Извлекаем цифру индекса диска из строки вида "\\.\PHYSICALDRIVE0"
+		// Находим номер диска для старого метода
 		driveIndex := "0"
 		for i := len(disk.DeviceID) - 1; i >= 0; i-- {
 			if disk.DeviceID[i] >= '0' && disk.DeviceID[i] <= '9' {
