@@ -3,6 +3,7 @@ package services
 import (
 	"log"
 	"strings"
+	"fmt"
 	"github.com/yusufpapurcu/wmi"
 )
 
@@ -40,7 +41,8 @@ type AdvancedDiskStatus struct {
 }
 
 func GetAdvancedDiskStatus() []AdvancedDiskStatus {
-	log.Println("[💾 DISK SERVICE] Сбор расширенной статистики дисков...")
+	// ИСПРАВЛЕНО: Заменили log.Println на fmt.Println
+	fmt.Println(" [💾 DISK SERVICE] Сбор расширенной статистики дисков...")
 
 	var results []AdvancedDiskStatus
 
@@ -49,9 +51,9 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	queryStorage := "SELECT DeviceId, FriendlyName, MediaType, BusType, HealthStatus FROM MSFT_PhysicalDisk"
 	err := wmi.QueryNamespace(queryStorage, &storageData, `root\Microsoft\Windows\Storage`)
 
-	// ИСПРАВЛЕНО: Заходим внутрь ТОЛЬКО если диски РЕАЛЬНО найдены
 	if err == nil && len(storageData) > 0 {
-		log.Printf("[🔍 DISK SERVICE] Успешно найдено %d дисков через MSFT_PhysicalDisk", len(storageData))
+		// ИСПРАВЛЕНО: Заменили log.Printf на fmt.Printf
+		fmt.Printf(" [🔍 DISK SERVICE] Успешно найдено %d дисков через MSFT_PhysicalDisk\n", len(storageData))
 		for _, disk := range storageData {
 			mediaType := "Unknown"
 			if disk.MediaType == 3 { mediaType = "HDD" } else if disk.MediaType == 4 { mediaType = "SSD" }
@@ -83,27 +85,28 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		return results
 	}
 
-	// 2. БЕЗОПАСНЫЙ ОТКАТ: Переходим сюда, если первый метод упал ИЛИ вернул 0 дисков
-	log.Println("[⚠️ WARNING] MSFT_PhysicalDisk вернул 0 дисков или недоступен. Переход на Win32_DiskDrive...")
+	// 2. БЕЗОПАСНЫЙ ОТКАТ: Переходим сюда, если первый метод вернул 0 дисков
+	// ИСПРАВЛЕНО: Заменили log.Println на fmt.Println
+	fmt.Println(" [⚠️ WARNING] MSFT_PhysicalDisk вернул 0 дисков или недоступен. Переход на Win32_DiskDrive...")
 	var driveData []Win32_DiskDrive
 	queryDrive := "SELECT DeviceID, Caption, Status, InterfaceType, ConfigManagerErrorCode FROM Win32_DiskDrive"
 
 	err = wmi.Query(queryDrive, &driveData)
 	if err != nil {
-		log.Printf("[❌ CRITICAL ERROR] Все методы опроса дисков провалились: %v", err)
+		// ИСПРАВЛЕНО: Заменили log.Printf на fmt.Printf
+		fmt.Printf(" [❌ CRITICAL ERROR] Все методы опроса дисков провалились: %v\n", err)
 		return []AdvancedDiskStatus{}
 	}
 
-	log.Printf("[🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive", len(driveData))
+	// ИСПРАВЛЕНО: Заменили log.Printf на fmt.Printf
+	fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive\n", len(driveData))
 	for _, disk := range driveData {
 		id := strings.TrimPrefix(disk.DeviceID, `\\.\`)
 
-		// Обработка статуса здоровья (для старых ОС "OK" или пустота означает успех)
 		isHealthy := disk.Status == "OK" || disk.Status == ""
 		healthStatus := "Healthy"
 		if !isHealthy { healthStatus = "Unhealthy" }
 
-		// Пытаемся определить интерфейс подключения
 		interfaceType := "Unknown"
 		if disk.InterfaceType != "" {
 			interfaceType = disk.InterfaceType
@@ -112,7 +115,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		results = append(results, AdvancedDiskStatus{
 			DeviceID:       id,
 			Model:          disk.Caption,
-			Type:           "HDD", // Для старого класса ставим HDD по умолчанию, либо Unknown
+			Type:           "HDD",
 			Interface:      interfaceType,
 			HealthStatus:   healthStatus,
 			IsHealthy:      isHealthy,
