@@ -25,13 +25,11 @@ func initLogger() {
 		return
 	}
 
-	// Настраиваем вывод: и в файл, и в стандартную консоль одновременно (MultiWriter)
+	// Настраиваем вывод: и в файл, и в стандартную консоль одновременно
 	mw := io.MultiWriter(os.Stdout, logFile)
 	log.SetOutput(mw)
 
-	// Перенаправляем стандартные системные выводы операционной системы (Опционально)
-	os.Stdout = logFile
-	os.Stderr = logFile
+	// УДАЛЕНО: os.Stdout = logFile и os.Stderr = logFile больше не ломают службу Windows
 }
 func main() {
 	initLogger()
