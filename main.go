@@ -22,7 +22,7 @@ func initLogger() {
 		targetDir = "."
 	}
 
-	logFilePath := filepath.Join(targetDir, "agent.log")
+	logFilePath := filepath.Join(targetDir, "agent_hardware.log")
 
 	// Открываем файл лога в режиме добавления
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)

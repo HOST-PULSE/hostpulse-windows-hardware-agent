@@ -177,22 +177,14 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	}
 
 	for _, disk := range driveData {
-		id := strings.TrimPrefix(disk.DeviceID, `\\.\`)
-
-		// Находим номер диска для старого метода
-		driveIndex := "0"
-		for i := len(disk.DeviceID) - 1; i >= 0; i-- {
-			if disk.DeviceID[i] >= '0' && disk.DeviceID[i] <= '9' {
-				driveIndex = string(disk.DeviceID[i])
-				break
-			}
-		}
+		id := strings.TrimPrefix(disk.DeviceID, `\\.\`) // Тут id становится равен "PHYSICALDRIVE0"
 
 		isHealthy := disk.Status == "OK" || disk.Status == ""
 		healthStatus := "Healthy"
 		if !isHealthy { healthStatus = "Unhealthy" }
 
-		realSectors, temp, workHours := GetSmartDataUniversal(driveIndex)
+		// ИСПРАВЛЕНО: Передаем уже очищенный id (например, "PHYSICALDRIVE0"), а не disk.DeviceId
+		realSectors, temp, workHours := GetSmartDataUniversal(id)
 
 		results = append(results, AdvancedDiskStatus{
 			DeviceID:           id,
