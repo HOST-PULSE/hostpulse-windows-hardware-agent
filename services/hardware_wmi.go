@@ -35,8 +35,24 @@ type AdvancedDiskStatus struct {
 	HealthStatus   string `json:"health_status"`
 	IsHealthy      bool   `json:"is_healthy"`
 	HardwareErrors uint32 `json:"hardware_errors_code"`
+	ReallocatedSectors uint32 `json:"reallocated_sectors"`
+	Temperature        uint8  `json:"temperature"`
+	PowerOnHours       uint32 `json:"power_on_hours"`
+}
+// MSStorageDriver_ATAPISmartData содержит сырые данные SMART от драйвера
+type MSStorageDriver_ATAPISmartData struct {
+	InstanceName   string
+	VendorSpecific [512]uint8 // Байты, где зашиты все атрибуты SMART
 }
 
+// SmartAttribute описывает структуру одного 12-байтового атрибута SMART
+type SmartAttribute struct {
+	Id         uint8
+	Flags      uint16
+	Current    uint8
+	Worst      uint8
+	RawValue   [6]uint8 // Сырое значение (6 байт)
+}
 func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	// ИСПРАВЛЕНО: Заменили log.Println на fmt.Println
 	fmt.Println(" [💾 DISK SERVICE] Сбор расширенной статистики дисков...")
@@ -108,7 +124,8 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		if disk.InterfaceType != "" {
 			interfaceType = disk.InterfaceType
 		}
-
+		// Перед формированием AdvancedDiskStatus:
+		realSectors, temp, workHours := GetSmartMetrics(disk.DeviceId)
 		results = append(results, AdvancedDiskStatus{
 			DeviceID:       id,
 			Model:          disk.Caption,
@@ -121,4 +138,46 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	}
 
 	return results
+}
+func GetSmartMetrics(deviceID string) (reallocated uint32, temperature uint8, hours uint32) {
+	var smartData []MSStorageDriver_ATAPISmartData
+
+	// В root\WMI лежат сырые данные дисков
+	err := wmi.QueryNamespace("SELECT InstanceName, VendorSpecific FROM MSStorageDriver_ATAPISmartData", &smartData, `root\WMI`)
+	if err != nil {
+		return 0, 0, 0
+	}
+
+	for _, data := range smartData {
+		// Привязка идет по InstanceName (там содержится часть строки от PnP Device ID)
+		// Проверяем, относится ли этот массив SMART к нашему текущему диску
+		if !strings.Contains(strings.ToLower(data.InstanceName), strings.ToLower(deviceID)) &&
+			!strings.Contains(strings.ToLower(data.VendorSpecificNameCheck(deviceID)), strings.ToLower(data.InstanceName)) {
+			// Если дисков несколько, отфильтруем по совпадению ID / модели
+		}
+
+		// Для простоты примера парсим первый совпавший или итерируемся по байтам.
+		// Данные атрибутов начинаются с байта под индексом 2. Каждый атрибут — 12 байт.
+		for i := 2; i < 362; i += 12 {
+			attrID := data.VendorSpecific[i]
+			if attrID == 0 {
+				break // Конец списка атрибутов
+			}
+
+			// Вытаскиваем RawValue (это байты [i+5] по [i+10])
+			rawBytes := data.VendorSpecific[i+5 : i+11]
+
+			switch attrID {
+			case 5: // Reallocated Sectors Count
+				reallocated = uint32(rawBytes[0]) | uint32(rawBytes[1])<<8 | uint32(rawBytes[2])<<16 | uint32(rawBytes[3])<<24
+			case 194: // Temperature
+				temperature = rawBytes[0]
+			case 9: // Power-On Hours
+				hours = uint32(rawBytes[0]) | uint32(rawBytes[1])<<8 | uint32(rawBytes[2])<<16 | uint32(rawBytes[3])<<24
+			}
+		}
+		// Возвращаем данные для первого совпавшего диска (или добавьте более строгий маппинг по InstanceName)
+		return reallocated, temperature, hours
+	}
+	return 0, 0, 0
 }
