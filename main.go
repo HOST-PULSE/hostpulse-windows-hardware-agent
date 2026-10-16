@@ -4,11 +4,17 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"bytes"
 	"os"
 	"path/filepath"
 	// Замените на ваш актуальный модуль из go.mod
 	"windows-hardware-agent/services"
 )
+
+type winLineFixer struct {
+	io.Writer
+}
+
 func initLogger() {
 	// Получаем путь к папке, где лежит запущенный бинарник
 	exePath, err := os.Executable()
