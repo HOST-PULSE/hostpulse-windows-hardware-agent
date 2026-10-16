@@ -14,22 +14,24 @@ import (
 var smartctlBytes []byte
 
 func initLogger() {
-	// Получаем путь к папке, где лежит запущенный бинарник
-	exePath, err := os.Executable()
-	if err != nil {
-		exePath = "."
-	}
-	exeDir := filepath.Dir(exePath)
-	logFilePath := filepath.Join(exeDir, "agent.log")
+	// Вместо капризного os.Executable() используем фиксированную рабочую папку агента
+	targetDir := "C:\\Program Files\\HostPulse"
 
-	// Открываем или создаем файл agent.log в режиме добавления записи
+	// Если папки нет (например, при тестах), откатываемся на текущую директорию
+	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+		targetDir = "."
+	}
+
+	logFilePath := filepath.Join(targetDir, "agent.log")
+
+	// Открываем файл лога в режиме добавления
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
-		fmt.Printf(" [❌ ERROR] Не удалось создать файл лога: %v\n", err)
+		fmt.Printf(" [❌ ERROR] Не удалось создать файл лога по пути %s: %v\n", logFilePath, err)
 		return
 	}
 
-	// Настраиваем вывод: и в файл, и в стандартную консоль одновременно (MultiWriter)
+	// Настраиваем стандартный логгер Go на запись в файл и в консоль одновременно
 	mw := io.MultiWriter(os.Stdout, logFile)
 	log.SetOutput(mw)
 }
