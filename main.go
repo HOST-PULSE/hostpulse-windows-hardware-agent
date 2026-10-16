@@ -1,14 +1,18 @@
 package main
 
 import (
+	_ "embed" // Обязательный импорт для работы механизма вшивания файлов
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
-	// Замените на ваш актуальный модуль из go.mod
 	"windows-hardware-agent/services"
 )
+
+//go:embed smartctl.exe
+var smartctlBytes []byte
+
 func initLogger() {
 	// Получаем путь к папке, где лежит запущенный бинарник
 	exePath, err := os.Executable()
@@ -28,18 +32,18 @@ func initLogger() {
 	// Настраиваем вывод: и в файл, и в стандартную консоль одновременно (MultiWriter)
 	mw := io.MultiWriter(os.Stdout, logFile)
 	log.SetOutput(mw)
-
-	// Перенаправляем стандартные системные выводы операционной системы (Опционально)
-	os.Stdout = logFile
-	os.Stderr = logFile
 }
+
 func main() {
+	// Инициализируем логирование
 	initLogger()
 
-	fmt.Println("\n=======================================================")
-	fmt.Println("=== Агент мониторинга железа HostPulse под Windows запущен ===")
-	fmt.Println("=======================================================")
+	// Передаем байты утилиты из корня в пакет services перед стартом опроса дисков
+	services.SetSmartctlBinary(smartctlBytes)
 
+	log.Println("\n=======================================================")
+	log.Println("=== Агент мониторинга железа HostPulse под Windows запущен ===")
+	log.Println("=======================================================")
 
 	metricsURL := os.Getenv("HOSTPULSE_HARDWARE_URL")
 	if metricsURL == "" {
@@ -48,18 +52,20 @@ func main() {
 
 	agentToken := os.Getenv("HOSTPULSE_TOKEN")
 	if agentToken == "" {
-		fmt.Println(" [⚠️ WARNING] HOSTPULSE_TOKEN не задан. Используется дефолтный токен.")
+		log.Println(" [⚠️ WARNING] HOSTPULSE_TOKEN не задан. Используется дефолтный токен.")
 		agentToken = "default_hardware_token_123"
 	}
 
-	fmt.Printf(" [INFO] Базовый эндпоинт: %s\n", metricsURL)
+	log.Printf(" [INFO] Базовый эндпоинт: %s\n", metricsURL)
+
+	// Отправляем паспорт сервера
 	services.SendStaticHardwareInfo(metricsURL, agentToken)
-	// Запускаем каждый воркер в своей отдельной горутине
-	//go services.StartCpuPoller(metricsURL, agentToken)
+
+	// Запускаем воркеры сбора метрик в фоновых горутинах
+	// go services.StartCpuPoller(metricsURL, agentToken)
 	go services.StartDiskPoller(metricsURL, agentToken)
 	go services.StartFansPoller(metricsURL, agentToken)
 
-	// Блокируем главный поток, чтобы агент работал бесконечно
+	// Блокируем главный поток, чтобы агент работал бесконечно в качестве службы
 	select {}
 }
-

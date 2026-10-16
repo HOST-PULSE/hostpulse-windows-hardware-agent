@@ -1,7 +1,6 @@
 package services
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,9 +10,13 @@ import (
 	"github.com/yusufpapurcu/wmi"
 )
 
-// Вшиваем smartctl.exe, который лежит на один уровень выше (в корне проекта)
-//go:embed ../smartctl.exe
+// Вместо //go:embed делаем обычный срез байт, который безопасно заполнится из main.go
 var smartctlBinary []byte
+
+// Функция для установки байтов из главного пакета main.go (решает проблему путей компилятора)
+func SetSmartctlBinary(b []byte) {
+	smartctlBinary = b
+}
 
 // MSFT_PhysicalDisk используется для базового обнаружения дисков
 type MSFT_PhysicalDisk struct {
