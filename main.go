@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	// Замените на ваш актуальный модуль из go.mod
-	"windows-hardware-agent/services"
+	//"windows-hardware-agent/services"
 )
 func initLogger() {
 	// Жесткий, абсолютный путь к файлу лога.
