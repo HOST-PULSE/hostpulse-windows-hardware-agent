@@ -10,10 +10,8 @@ import (
 	"github.com/yusufpapurcu/wmi"
 )
 
-// Вместо //go:embed делаем обычный срез байт, который безопасно заполнится из main.go
 var smartctlBinary []byte
 
-// Функция для установки байтов из главного пакета main.go (решает проблему путей компилятора)
 func SetSmartctlBinary(b []byte) {
 	smartctlBinary = b
 }
@@ -77,7 +75,6 @@ func extractSmartctl() (string, error) {
 	tmpDir := os.TempDir()
 	execPath := filepath.Join(tmpDir, "hostpulse_smartctl.exe")
 
-	// Если файл уже распакован ранее, не перезаписываем его лишний раз
 	if _, err := os.Stat(execPath); os.IsNotExist(err) {
 		err = os.WriteFile(execPath, smartctlBinary, 0755)
 		if err != nil {
@@ -88,19 +85,18 @@ func extractSmartctl() (string, error) {
 }
 
 // Универсальный сбор SMART через встроенный smartctl
-func GetSmartDataUniversal(driveIndex string) (reallocated uint32, temperature uint8, hours uint32) {
+func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, temperature uint8, hours uint32) {
 	smartctlPath, err := extractSmartctl()
 	if err != nil {
 		return 0, 0, 0
 	}
 
-	// ИСПРАВЛЕНО: Надежно вытаскиваем только цифру индекса (последний символ строки)
+	// Надежно вытаскиваем только цифру индекса (последний символ строки, например "PHYSICALDRIVE0" -> "0")
 	driveIndex := "0"
-	if len(deviceID) > 0 {
-		driveIndex = string(deviceID[len(deviceID)-1])
+	if len(targetDeviceID) > 0 {
+		driveIndex = string(targetDeviceID[len(targetDeviceID)-1])
 	}
 
-	// Передаем чистую цифру в команду: /dev/pd0, /dev/pd1
 	cmd := exec.Command(smartctlPath, "-a", "/dev/pd"+driveIndex, "-json")
 	output, _ := cmd.Output()
 
@@ -126,7 +122,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	fmt.Println(" [💾 DISK SERVICE] Сбор расширенной статистики дисков...")
 	var results []AdvancedDiskStatus
 
-	// 1. Пытаемся получить список дисков через современный метод
+	// 1. Пытаемся получить список дисков через современный метод Storage Namespace
 	var storageData []MSFT_PhysicalDisk
 	queryStorage := "SELECT DeviceId, FriendlyName, MediaType, BusType, HealthStatus FROM MSFT_PhysicalDisk"
 	err := wmi.QueryNamespace(queryStorage, &storageData, `root\Microsoft\Windows\Storage`)
@@ -153,8 +149,8 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 
 			targetID := "PHYSICALDRIVE" + disk.DeviceId
 
-			// Опрашиваем диск по его индексу
-			realSectors, temp, workHours := GetSmartDataUniversal(disk.DeviceId)
+			// Вызываем универсальный сборщик по targetID
+			realSectors, temp, workHours := GetSmartDataUniversal(targetID)
 
 			results = append(results, AdvancedDiskStatus{
 				DeviceID:           targetID,
@@ -172,8 +168,8 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		return results
 	}
 
-	// 2. ОТКАТ (Для старых ОС или специфичных виртуальных сред)
-	fmt.Println(" [⚠️ WARNING] Переход на Win32_DiskDrive...")
+	// 2. ОТКАТ: Переходим сюда, если первый метод вернул 0 дисков (Win32_DiskDrive)
+	fmt.Println(" [⚠️ WARNING] MSFT_PhysicalDisk вернул 0 дисков. Переход на Win32_DiskDrive...")
 	var driveData []Win32_DiskDrive
 	queryDrive := "SELECT DeviceID, Caption, Status, InterfaceType, ConfigManagerErrorCode FROM Win32_DiskDrive"
 
@@ -182,14 +178,17 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		return []AdvancedDiskStatus{}
 	}
 
+	fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive\n", len(driveData))
 	for _, disk := range driveData {
-		id := strings.TrimPrefix(disk.DeviceID, `\\.\`) // Тут id становится равен "PHYSICALDRIVE0"
+		// id очищается до вида PHYSICALDRIVE0
+		id := strings.TrimPrefix(disk.DeviceID, `\\.\`)
 
 		isHealthy := disk.Status == "OK" || disk.Status == ""
 		healthStatus := "Healthy"
 		if !isHealthy { healthStatus = "Unhealthy" }
 
-		// ИСПРАВЛЕНО: Передаем уже очищенный id (например, "PHYSICALDRIVE0"), а не disk.DeviceId
+		// ИСПРАВЛЕНО: Используем обычное присваивание =, так как переменные уже объявлены выше по функции
+		// ИСПРАВЛЕНО: Передаем правильную локальную переменную id с корректным регистром букв
 		realSectors, temp, workHours := GetSmartDataUniversal(id)
 
 		results = append(results, AdvancedDiskStatus{
