@@ -32,6 +32,11 @@ func initLogger() {
 	// Перенаправляем стандартные системные выводы операционной системы (Опционально)
 	os.Stdout = logFile
 	os.Stderr = logFile
+	log.SetOutput(logFile)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	log.SetPrefix("")
+	// Добавьте эту строку ниже:
+	log.SetOutput(&winLineFixer{logFile})
 }
 func main() {
 	initLogger()
