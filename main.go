@@ -13,27 +13,22 @@ import (
 //go:embed smartctl.exe
 var smartctlBytes []byte
 
-func initLogger() {
-	// Вместо капризного os.Executable() используем фиксированную рабочую папку агента
+func WriteToLog(message string) {
 	targetDir := "C:\\Program Files\\HostPulse"
-
-	// Если папки нет (например, при тестах), откатываемся на текущую директорию
 	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
 		targetDir = "."
 	}
+	logFilePath := filepath.Join(targetDir, "agent.log")
 
-	logFilePath := filepath.Join(targetDir, "agent_hardware.log")
-
-	// Открываем файл лога в режиме добавления
-	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	f, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
-		fmt.Printf(" [❌ ERROR] Не удалось создать файл лога по пути %s: %v\n", logFilePath, err)
 		return
 	}
+	defer f.Close()
 
-	// Настраиваем стандартный логгер Go на запись в файл и в консоль одновременно
-	mw := io.MultiWriter(os.Stdout, logFile)
-	log.SetOutput(mw)
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	f.WriteString(fmt.Sprintf("[%s] %s\n", timestamp, message))
+	f.Sync() // Принудительный жесткий сброс на диск
 }
 
 func main() {
