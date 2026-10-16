@@ -1,15 +1,19 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"io"
 	"log"
 	"bytes"
+
 	"os"
 	"path/filepath"
 	// Замените на ваш актуальный модуль из go.mod
 	"windows-hardware-agent/services"
 )
+//go:embed smartctl.exe
+var smartctlBytes []byte
 
 type winLineFixer struct {
 	io.Writer
