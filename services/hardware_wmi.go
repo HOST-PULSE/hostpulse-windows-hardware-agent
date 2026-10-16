@@ -1,7 +1,7 @@
 package services
 
 import (
-	
+
 	"strings"
 	"fmt"
 	"github.com/yusufpapurcu/wmi"
@@ -23,9 +23,6 @@ type Win32_DiskDrive struct {
 	Caption                string
 	Status                 string
 	InterfaceType          string
-	SectorsPerTrack        uint32
-	TotalSectors           uint64
-	Capabilities           []uint16
 	ConfigManagerErrorCode uint32
 }
 
