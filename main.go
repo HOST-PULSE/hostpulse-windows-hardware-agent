@@ -3,7 +3,7 @@ package main
 import (
 	_ "embed" // Обязательный импорт для работы механизма вшивания файлов
 	"fmt"
-	"io"
+	"time"
 	"log"
 	"os"
 	"path/filepath"
@@ -33,7 +33,7 @@ func WriteToLog(message string) {
 
 func main() {
 	// Инициализируем логирование
-	initLogger()
+	
 
 	// Передаем байты утилиты из корня в пакет services перед стартом опроса дисков
 	services.SetSmartctlBinary(smartctlBytes)
