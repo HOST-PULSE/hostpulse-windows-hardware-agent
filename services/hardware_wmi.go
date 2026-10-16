@@ -50,7 +50,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 
 	var results []AdvancedDiskStatus
 
-	// 1. Пробуем современный метод (Storage Namespace)
+	// 1. СОВРЕМЕННЫЙ МЕТОД (Windows 10/11, Server 2016/2019/2022)
 	var storageData []MSFT_PhysicalDisk
 	queryStorage := "SELECT DeviceId, FriendlyName, MediaType, BusType, HealthStatus FROM MSFT_PhysicalDisk"
 	err := wmi.QueryNamespace(queryStorage, &storageData, `root\Microsoft\Windows\Storage`)
@@ -76,7 +76,14 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 			}
 
 			targetID := "PHYSICALDRIVE" + disk.DeviceId
-			realSectors, temp, workHours := GetSmartMetrics(targetID)
+
+			// --- УНИВЕРСАЛЬНЫЙ КАСКАД СБОРА SMART ---
+			realSectors, temp, workHours := GetSmartMetrics(targetID) // Сначала WMI
+			if realSectors == 0 && temp == 0 && workHours == 0 {
+				// Если WMI выдал нули (как на Intel S5500HC), бьем напрямую через WinAPI
+				realSectors, temp, workHours = GetSmartNative(targetID)
+			}
+			// ----------------------------------------
 
 			results = append(results, AdvancedDiskStatus{
 				DeviceID:           targetID,
@@ -94,7 +101,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		return results
 	}
 
-	// 2. БЕЗОПАСНЫЙ ОТКАТ: Переходим сюда, если первый метод вернул 0 дисков
+	// 2. БЕЗОПАСНЫЙ ОТКАТ (Для старых Windows Server 2008/2012 или специфичных виртуалок)
 	fmt.Println(" [⚠️ WARNING] MSFT_PhysicalDisk вернул 0 дисков или недоступен. Переход на Win32_DiskDrive...")
 	var driveData []Win32_DiskDrive
 	queryDrive := "SELECT DeviceID, Caption, Status, InterfaceType, ConfigManagerErrorCode FROM Win32_DiskDrive"
@@ -118,8 +125,13 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 			interfaceType = disk.InterfaceType
 		}
 
-		// ИСПРАВЛЕНО: Заменили disk.DeviceId на правильный disk.DeviceID
-		realSectors, temp, workHours := GetSmartMetrics(disk.DeviceID)
+		// --- УНИВЕРСАЛЬНЫЙ КАСКАД СБОРА SMART (ДЛЯ ОТКАТА) ---
+		realSectors, temp, workHours := GetSmartMetrics(disk.DeviceID) // Сначала WMI
+		if realSectors == 0 && temp == 0 && workHours == 0 {
+			// Если WMI пустой, запрашиваем WinAPI дескриптор
+			realSectors, temp, workHours = GetSmartNative(disk.DeviceID)
+		}
+		// -----------------------------------------------------
 
 		results = append(results, AdvancedDiskStatus{
 			DeviceID:           id,
@@ -129,14 +141,15 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 			HealthStatus:       healthStatus,
 			IsHealthy:          isHealthy,
 			HardwareErrors:     disk.ConfigManagerErrorCode,
-			ReallocatedSectors: realSectors, // ИСПРАВЛЕНО: Добавлены двоеточия
-			Temperature:        temp,        // ИСПРАВЛЕНО: Добавлены двоеточия
-			PowerOnHours:       workHours,   // ИСПРАВЛЕНО: Добавлены двоеточия
+			ReallocatedSectors: realSectors,
+			Temperature:        temp,
+			PowerOnHours:       workHours,
 		})
 	}
 
 	return results
 }
+
 
 func GetSmartMetrics(deviceID string) (reallocated uint32, temperature uint8, hours uint32) {
 	var smartData []MSStorageDriver_ATAPISmartData
