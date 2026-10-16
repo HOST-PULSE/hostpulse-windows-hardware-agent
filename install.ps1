@@ -36,7 +36,7 @@ if (!(Test-Path $TargetDir)) {
 }
 
 # 4. Скачиваем свежий скомпилированный EXE-файл агента из релизов GitHub
-$AgentDownloadUrl = "https://github.com/HOST-PULSE/hostpulse-windows-hardware-agent/releases/download/v1.0.57/windows-hardware-agent.exe"
+$AgentDownloadUrl = "https://github.com/HOST-PULSE/hostpulse-windows-hardware-agent/releases/download/v1.0.58/windows-hardware-agent.exe"
 $AgentPath = "$TargetDir\hostpulse_hardware_agent.exe"
 
 Write-Output "Downloading agent binary..."
@@ -60,20 +60,9 @@ if (!(Test-Path $NssmPath)) {
 }
 
 # 6. Скачиваем smartctl по жесткому абсолютному пути
-$SmartPath = "$TargetDir\smartctl.exe"
-if (!(Test-Path $SmartPath)) {
-    Write-Output "Downloading smartctl component..."
-    $SmartUrl = "https://raw.githubusercontent.com/HOST-PULSE/hostpulse-windows-hardware-agent/main/smartctl.exe"
-    try {
-        Invoke-WebRequest -Uri $SmartUrl -OutFile $SmartPath -UseBasicParsing | Out-Null
-    } catch {
-        # ИСПРАВЛЕНО: Используем строго $SmartPath вместо случайного затирания $NssmPath
-        (New-Object System.Net.WebClient).DownloadFile($SmartUrl, $SmartPath)
-    }
-}
 
 # Дополнительная проверка на физическое наличие файлов на диске перед установкой
-if (!(Test-Path $NssmPath) -or !(Test-Path $AgentPath) -or !(Test-Path $SmartPath)) {
+if (!(Test-Path $NssmPath) -or !(Test-Path $AgentPath)) {
     Write-Output "Error: Critical components download failed!"
     exit 1
 }
