@@ -141,52 +141,60 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 func GetSmartMetrics(deviceID string) (reallocated uint32, temperature uint8, hours uint32) {
 	var smartData []MSStorageDriver_ATAPISmartData
 
+	// Опрашиваем пространство root\WMI
 	err := wmi.QueryNamespace("SELECT InstanceName, VendorSpecific FROM MSStorageDriver_ATAPISmartData", &smartData, `root\WMI`)
-	if err != nil {
+	if err != nil || len(smartData) == 0 {
 		return 0, 0, 0
 	}
 
-	// Выделяем из пути (например, "IDE\DiskST1000VX013...") ключевую часть для сопоставления
 	cleanTarget := strings.ToLower(strings.ReplaceAll(deviceID, `\\.\`, ""))
 
 	for _, data := range smartData {
 		cleanInstance := strings.ToLower(data.InstanceName)
 
-		// ИСПРАВЛЕНО: Удален несуществующий вызов VendorSpecificNameCheck
-		if !strings.Contains(cleanInstance, cleanTarget) && !strings.Contains(cleanTarget, "physicaldrive") {
-			// Дополнительная проверка на случай, если пришел короткий ID вроде "PHYSICALDRIVE0"
-			// Драйвер SMART в InstanceName обычно пишет что-то вроде "SCSI\Disk&Ven_...&Prod_..._0"
-			// Если привязка жестко не совпала, проверим окончание строки с номером диска
+		// Проверка на соответствие диска (по названию или номеру в конце)
+		matched := strings.Contains(cleanInstance, cleanTarget)
+		if !matched {
 			idx := strings.LastIndex(cleanTarget, "drive")
 			if idx != -1 && idx+5 < len(cleanTarget) {
 				diskNum := cleanTarget[idx+5:]
-				if !strings.HasSuffix(cleanInstance, "_"+diskNum) && !strings.Contains(cleanInstance, "instance"+diskNum) {
-					continue
+				if strings.HasSuffix(cleanInstance, "_"+diskNum) || strings.Contains(cleanInstance, "instance"+diskNum) {
+					matched = true
 				}
-			} else {
-				continue
 			}
 		}
 
-		// Данные атрибутов начинаются с байта под индексом 2. Каждый атрибут — 12 байт.
+		if !matched {
+			continue
+		}
+
+		// По спецификации ATA SMART: данные атрибутов начинаются с индекса 2. Всего 30 атрибутов по 12 байт.
 		for i := 2; i < 362; i += 12 {
 			attrID := data.VendorSpecific[i]
 			if attrID == 0 {
-				break
+				break // Конец списка атрибутов
 			}
 
-			rawBytes := data.VendorSpecific[i+5 : i+11]
+			// Исправленный побайтовый сбор значения Raw Value (байты с i+5 по i+10)
+			// Берем первые 4 байта из 6 доступных для формирования uint32
+			v5 := uint32(data.VendorSpecific[i+5])
+			v6 := uint32(data.VendorSpecific[i+6])
+			v7 := uint32(data.VendorSpecific[i+7])
+			v8 := uint32(data.VendorSpecific[i+8])
+
+			rawValue := v5 | (v6 << 8) | (v7 << 16) | (v8 << 24)
 
 			switch attrID {
 			case 5: // Reallocated Sectors Count
-				reallocated = uint32(rawBytes[0]) | uint32(rawBytes[1])<<8 | uint32(rawBytes[2])<<16 | uint32(rawBytes[3])<<24
-			case 194: // Temperature
-				temperature = rawBytes[0]
+				reallocated = rawValue
 			case 9: // Power-On Hours
-				hours = uint32(rawBytes[0]) | uint32(rawBytes[1])<<8 | uint32(rawBytes[2])<<16 | uint32(rawBytes[3])<<24
+				hours = rawValue
+			case 194, 12: // 194 = Температура, иногда дублируется в 12 у старых HDD
+				temperature = data.VendorSpecific[i+5] // Первый байт сырого значения — текущая температура в градусах Цельсия
 			}
 		}
 		return reallocated, temperature, hours
 	}
 	return 0, 0, 0
 }
+
