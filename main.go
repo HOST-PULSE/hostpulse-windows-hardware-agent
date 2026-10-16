@@ -38,6 +38,15 @@ func initLogger() {
 	// Добавьте эту строку ниже:
 	log.SetOutput(&winLineFixer{logFile})
 }
+func (w *winLineFixer) Write(p []byte) (n int, err error) {
+	// Если строка заканчивается на \n, но перед ним нет \r, заменяем на \r\n
+	if len(p) > 0 && p[len(p)-1] == '\n' && (len(p) == 1 || p[len(p)-2] != '\r') {
+		fixed := bytes.ReplaceAll(p, []byte("\n"), []byte("\r\n"))
+		_, err := w.Writer.Write(fixed)
+		return len(p), err
+	}
+	return w.Writer.Write(p)
+}
 func main() {
 	initLogger()
 
