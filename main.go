@@ -55,7 +55,7 @@ func main() {
 	log.Println("=== Агент мониторинга железа HostPulse под Windows запущен ===")
 	log.Println("=======================================================")
 
-	services.SetSmartctlBinary(smartctlBytes)
+	//services.SetSmartctlBinary(smartctlBytes)
 
 	metricsURL := os.Getenv("HOSTPULSE_HARDWARE_URL")
 	if metricsURL == "" { metricsURL = "https://zedform.kz" }
