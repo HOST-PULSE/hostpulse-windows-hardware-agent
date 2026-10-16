@@ -94,7 +94,13 @@ func GetSmartDataUniversal(driveIndex string) (reallocated uint32, temperature u
 		return 0, 0, 0
 	}
 
-	// Запрашиваем данные в формате JSON — это гарантирует стабильный парсинг на любом контроллере
+	// ИСПРАВЛЕНО: Надежно вытаскиваем только цифру индекса (последний символ строки)
+	driveIndex := "0"
+	if len(deviceID) > 0 {
+		driveIndex = string(deviceID[len(deviceID)-1])
+	}
+
+	// Передаем чистую цифру в команду: /dev/pd0, /dev/pd1
 	cmd := exec.Command(smartctlPath, "-a", "/dev/pd"+driveIndex, "-json")
 	output, _ := cmd.Output()
 
