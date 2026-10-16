@@ -85,8 +85,7 @@ func StartDiskPoller(baseURL string, token string) {
 
 func sendDiskData(url string, token string) {
 	fmt.Println(" [i] Диски")
-	disks := nil
-	//disks := GetAdvancedDiskStatus()
+	disks := GetAdvancedDiskStatus()
 	if disks == nil {
 		return
 	}
