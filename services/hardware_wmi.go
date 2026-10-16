@@ -1,9 +1,8 @@
 package services
 
 import (
-
-	"strings"
 	"fmt"
+	"strings"
 	"github.com/yusufpapurcu/wmi"
 )
 
@@ -28,33 +27,25 @@ type Win32_DiskDrive struct {
 
 // AdvancedDiskStatus собирает абсолютно все доступные метрики диска для Django
 type AdvancedDiskStatus struct {
-	DeviceID       string `json:"device_id"`
-	Model          string `json:"model"`
-	Type           string `json:"type"`
-	Interface      string `json:"interface"`
-	HealthStatus   string `json:"health_status"`
-	IsHealthy      bool   `json:"is_healthy"`
-	HardwareErrors uint32 `json:"hardware_errors_code"`
+	DeviceID           string `json:"device_id"`
+	Model              string `json:"model"`
+	Type               string `json:"type"`
+	Interface          string `json:"interface"`
+	HealthStatus       string `json:"health_status"`
+	IsHealthy          bool   `json:"is_healthy"`
+	HardwareErrors     uint32 `json:"hardware_errors_code"`
 	ReallocatedSectors uint32 `json:"reallocated_sectors"`
 	Temperature        uint8  `json:"temperature"`
 	PowerOnHours       uint32 `json:"power_on_hours"`
 }
+
 // MSStorageDriver_ATAPISmartData содержит сырые данные SMART от драйвера
 type MSStorageDriver_ATAPISmartData struct {
 	InstanceName   string
 	VendorSpecific [512]uint8 // Байты, где зашиты все атрибуты SMART
 }
 
-// SmartAttribute описывает структуру одного 12-байтового атрибута SMART
-type SmartAttribute struct {
-	Id         uint8
-	Flags      uint16
-	Current    uint8
-	Worst      uint8
-	RawValue   [6]uint8 // Сырое значение (6 байт)
-}
 func GetAdvancedDiskStatus() []AdvancedDiskStatus {
-	// ИСПРАВЛЕНО: Заменили log.Println на fmt.Println
 	fmt.Println(" [💾 DISK SERVICE] Сбор расширенной статистики дисков...")
 
 	var results []AdvancedDiskStatus
@@ -65,7 +56,6 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	err := wmi.QueryNamespace(queryStorage, &storageData, `root\Microsoft\Windows\Storage`)
 
 	if err == nil && len(storageData) > 0 {
-		// ИСПРАВЛЕНО: Заменили log.Printf на fmt.Printf
 		fmt.Printf(" [🔍 DISK SERVICE] Успешно найдено %d дисков через MSFT_PhysicalDisk\n", len(storageData))
 		for _, disk := range storageData {
 			mediaType := "Unknown"
@@ -85,33 +75,36 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 			case 2: health = "Unhealthy"
 			}
 
+			targetID := "PHYSICALDRIVE" + disk.DeviceId
+			realSectors, temp, workHours := GetSmartMetrics(targetID)
+
 			results = append(results, AdvancedDiskStatus{
-				DeviceID:       "PHYSICALDRIVE" + disk.DeviceId,
-				Model:          disk.FriendlyName,
-				Type:           mediaType,
-				Interface:      busType,
-				HealthStatus:   health,
-				IsHealthy:      disk.HealthStatus == 0,
-				HardwareErrors: 0,
+				DeviceID:           targetID,
+				Model:              disk.FriendlyName,
+				Type:               mediaType,
+				Interface:          busType,
+				HealthStatus:       health,
+				IsHealthy:          disk.HealthStatus == 0,
+				HardwareErrors:     0,
+				ReallocatedSectors: realSectors,
+				Temperature:        temp,
+				PowerOnHours:       workHours,
 			})
 		}
 		return results
 	}
 
 	// 2. БЕЗОПАСНЫЙ ОТКАТ: Переходим сюда, если первый метод вернул 0 дисков
-	// ИСПРАВЛЕНО: Заменили log.Println на fmt.Println
 	fmt.Println(" [⚠️ WARNING] MSFT_PhysicalDisk вернул 0 дисков или недоступен. Переход на Win32_DiskDrive...")
 	var driveData []Win32_DiskDrive
 	queryDrive := "SELECT DeviceID, Caption, Status, InterfaceType, ConfigManagerErrorCode FROM Win32_DiskDrive"
 
 	err = wmi.Query(queryDrive, &driveData)
 	if err != nil {
-		// ИСПРАВЛЕНО: Заменили log.Printf на fmt.Printf
 		fmt.Printf(" [❌ CRITICAL ERROR] Все методы опроса дисков провалились: %v\n", err)
 		return []AdvancedDiskStatus{}
 	}
 
-	// ИСПРАВЛЕНО: Заменили log.Printf на fmt.Printf
 	fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive\n", len(driveData))
 	for _, disk := range driveData {
 		id := strings.TrimPrefix(disk.DeviceID, `\\.\`)
@@ -124,47 +117,64 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		if disk.InterfaceType != "" {
 			interfaceType = disk.InterfaceType
 		}
-		// Перед формированием AdvancedDiskStatus:
-		realSectors, temp, workHours := GetSmartMetrics(disk.DeviceId)
+
+		// ИСПРАВЛЕНО: Заменили disk.DeviceId на правильный disk.DeviceID
+		realSectors, temp, workHours := GetSmartMetrics(disk.DeviceID)
+
 		results = append(results, AdvancedDiskStatus{
-			DeviceID:       id,
-			Model:          disk.Caption,
-			Type:           "HDD",
-			Interface:      interfaceType,
-			HealthStatus:   healthStatus,
-			IsHealthy:      isHealthy,
-			HardwareErrors: disk.ConfigManagerErrorCode,
+			DeviceID:           id,
+			Model:              disk.Caption,
+			Type:               "HDD",
+			Interface:          interfaceType,
+			HealthStatus:       healthStatus,
+			IsHealthy:          isHealthy,
+			HardwareErrors:     disk.ConfigManagerErrorCode,
+			ReallocatedSectors: realSectors, // ИСПРАВЛЕНО: Добавлены двоеточия
+			Temperature:        temp,        // ИСПРАВЛЕНО: Добавлены двоеточия
+			PowerOnHours:       workHours,   // ИСПРАВЛЕНО: Добавлены двоеточия
 		})
 	}
 
 	return results
 }
+
 func GetSmartMetrics(deviceID string) (reallocated uint32, temperature uint8, hours uint32) {
 	var smartData []MSStorageDriver_ATAPISmartData
 
-	// В root\WMI лежат сырые данные дисков
 	err := wmi.QueryNamespace("SELECT InstanceName, VendorSpecific FROM MSStorageDriver_ATAPISmartData", &smartData, `root\WMI`)
 	if err != nil {
 		return 0, 0, 0
 	}
 
+	// Выделяем из пути (например, "IDE\DiskST1000VX013...") ключевую часть для сопоставления
+	cleanTarget := strings.ToLower(strings.ReplaceAll(deviceID, `\\.\`, ""))
+
 	for _, data := range smartData {
-		// Привязка идет по InstanceName (там содержится часть строки от PnP Device ID)
-		// Проверяем, относится ли этот массив SMART к нашему текущему диску
-		if !strings.Contains(strings.ToLower(data.InstanceName), strings.ToLower(deviceID)) &&
-			!strings.Contains(strings.ToLower(data.VendorSpecificNameCheck(deviceID)), strings.ToLower(data.InstanceName)) {
-			// Если дисков несколько, отфильтруем по совпадению ID / модели
+		cleanInstance := strings.ToLower(data.InstanceName)
+
+		// ИСПРАВЛЕНО: Удален несуществующий вызов VendorSpecificNameCheck
+		if !strings.Contains(cleanInstance, cleanTarget) && !strings.Contains(cleanTarget, "physicaldrive") {
+			// Дополнительная проверка на случай, если пришел короткий ID вроде "PHYSICALDRIVE0"
+			// Драйвер SMART в InstanceName обычно пишет что-то вроде "SCSI\Disk&Ven_...&Prod_..._0"
+			// Если привязка жестко не совпала, проверим окончание строки с номером диска
+			idx := strings.LastIndex(cleanTarget, "drive")
+			if idx != -1 && idx+5 < len(cleanTarget) {
+				diskNum := cleanTarget[idx+5:]
+				if !strings.HasSuffix(cleanInstance, "_"+diskNum) && !strings.Contains(cleanInstance, "instance"+diskNum) {
+					continue
+				}
+			} else {
+				continue
+			}
 		}
 
-		// Для простоты примера парсим первый совпавший или итерируемся по байтам.
 		// Данные атрибутов начинаются с байта под индексом 2. Каждый атрибут — 12 байт.
 		for i := 2; i < 362; i += 12 {
 			attrID := data.VendorSpecific[i]
 			if attrID == 0 {
-				break // Конец списка атрибутов
+				break
 			}
 
-			// Вытаскиваем RawValue (это байты [i+5] по [i+10])
 			rawBytes := data.VendorSpecific[i+5 : i+11]
 
 			switch attrID {
@@ -176,7 +186,6 @@ func GetSmartMetrics(deviceID string) (reallocated uint32, temperature uint8, ho
 				hours = uint32(rawBytes[0]) | uint32(rawBytes[1])<<8 | uint32(rawBytes[2])<<16 | uint32(rawBytes[3])<<24
 			}
 		}
-		// Возвращаем данные для первого совпавшего диска (или добавьте более строгий маппинг по InstanceName)
 		return reallocated, temperature, hours
 	}
 	return 0, 0, 0
