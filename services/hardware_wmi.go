@@ -47,6 +47,10 @@ type AdvancedDiskStatus struct {
 	IsHealthy          bool   `json:"is_healthy"`
 	HardwareErrors     uint32 `json:"hardware_errors_code"`
 	ReallocatedSectors uint32 `json:"reallocated_sectors"`
+	BadSectorsPending  uint32 `json:"bad_sectors_pending"` // Из предыдущего шага
+	CrcErrors          uint32 `json:"crc_errors"`           // Ошибки шлейфа/SATA кабеля (ID 199)
+	PercentageUsed     uint8  `json:"percentage_used"`     // Износ SSD в % (0-100+)
+	SsdWrittenGb       uint64 `json:"ssd_written_gb"`       // Записано на SSD всего в Гигабайтах
 	Temperature        uint8  `json:"temperature"`
 	PowerOnHours       uint32 `json:"power_on_hours"`
 }
@@ -62,21 +66,22 @@ type SmartctlOutput struct {
 	Temperature struct {
 		Current uint8 `json:"current"`
 	} `json:"temperature"`
-	// Таблица для ATA/SATA накопителей
 	AtaSmartAttributes struct {
 		Table []struct {
 			Id   int    `json:"id"`
 			Name string `json:"name"`
 			Raw  struct {
-				Value uint64 `json:"value"` // ИСПРАВЛЕНО: uint32 заменен на uint64, чтобы избежать переполнения
+				Value uint64 `json:"value"` // uint64 из прошлого шага
 			} `json:"raw"`
 		} `json:"table"`
 	} `json:"ata_smart_attributes"`
-	// Лог для NVMe SSD накопителей
+	// ИСПРАВЛЕНО: Добавлены новые поля износа и записи для NVMe
 	NvmeSmartHealthInformationLog struct {
-		Temperature  uint32 `json:"temperature"`
-		PowerOnHours uint32 `json:"power_on_hours"`
-		MediaErrors  uint32 `json:"media_errors"`
+		Temperature      uint32 `json:"temperature"`
+		PowerOnHours     uint32 `json:"power_on_hours"`
+		MediaErrors      uint32 `json:"media_errors"`
+		PercentageUsed   uint8  `json:"percentage_used"`     // Сюда прилетит износ
+		DataUnitsWritten uint64 `json:"data_units_written"`  // Сюда прилетит сырой счетчик терабайт
 	} `json:"nvme_smart_health_information_log"`
 }
 
@@ -116,78 +121,64 @@ func extractSmartctl() (string, error) {
 
 // GetSmartDataUniversal выполняет универсальный сбор SMART через извлеченный smartctl
 // GetSmartDataUniversal выполняет универсальный сбор SMART через извлеченный smartctl с подробным логированием
-func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, temperature uint8, hours uint32) {
-	fmt.Printf("   [DEBUG SMART] Начинаем сбор для: %s\r\n", targetDeviceID)
-
+func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, pending uint32, crcErrors uint32, pctUsed uint8, writtenGb uint64, temperature uint8, hours uint32) {
 	smartctlPath, err := extractSmartctl()
 	if err != nil {
-		fmt.Printf("   [DEBUG SMART] ❌ Ошибка извлечения smartctl.exe: %v\r\n", err)
-		return 0, 0, 0
+		return 0, 0, 0, 0, 0, 0, 0
 	}
-	fmt.Printf("   [DEBUG SMART] Путь к smartctl: %s\r\n", smartctlPath)
 
-	// Надежное извлечение ВСЕХ цифр из ID диска с помощью регулярного выражения
 	re := regexp.MustCompile(`\d+`)
 	driveIndex := re.FindString(targetDeviceID)
 	if driveIndex == "" {
-		fmt.Println("   [DEBUG SMART] ⚠️ Индекс диска не найден, сброс на '0'")
 		driveIndex = "0"
 	}
 
-	targetDev := "/dev/pd" + driveIndex
-	fmt.Printf("   [DEBUG SMART] Сформирован параметр диска для утилиты: %s\r\n", targetDev)
-
-	// Вызов smartctl с корректным индексом диска
-	cmd := exec.Command(smartctlPath, "-a", targetDev, "--json")
+	cmd := exec.Command(smartctlPath, "-a", "/dev/pd"+driveIndex, "--json")
 	output, err := cmd.Output()
 	if err != nil && len(output) == 0 {
-		fmt.Printf("   [DEBUG SMART] ❌ Ошибка при выполнении exec.Command (вывод пуст): %v\r\n", err)
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			fmt.Printf("   [DEBUG SMART] Stderr утилиты: %s\r\n", string(exitErr.Stderr))
-		}
-		return 0, 0, 0
+		return 0, 0, 0, 0, 0, 0, 0
 	}
-
-	// Печатаем первые 200 символов ответа от smartctl, чтобы понять, пришел ли вообще JSON
-	shortOutput := string(output)
-	if len(shortOutput) > 200 {
-		shortOutput = shortOutput[:200] + "... [TRUNCATED]"
-	}
-	fmt.Printf("   [DEBUG SMART] Сырой JSON от утилиты (кусок): %s\r\n", shortOutput)
 
 	var data SmartctlOutput
 	if err := json.Unmarshal(output, &data); err != nil {
-		fmt.Printf("   [DEBUG SMART] ❌ Ошибка парсинга JSON (json.Unmarshal): %v\r\n", err)
-		return 0, 0, 0
+		return 0, 0, 0, 0, 0, 0, 0
 	}
 
-	// Базовые параметры для ATA/SATA
 	hours = data.PowerOnTime.Hours
 	temperature = data.Temperature.Current
-	fmt.Printf("   [DEBUG SMART] Считано (ATA): Hours=%d, Temp=%d\r\n", hours, temperature)
 
-	// Разбор NVMe логики
+	// Проверяем, NVMe ли это устройство
 	if data.NvmeSmartHealthInformationLog.PowerOnHours > 0 {
 		hours = data.NvmeSmartHealthInformationLog.PowerOnHours
 		reallocated = data.NvmeSmartHealthInformationLog.MediaErrors
+		pctUsed = data.NvmeSmartHealthInformationLog.PercentageUsed
+
 		if data.NvmeSmartHealthInformationLog.Temperature > 0 {
 			temperature = uint8(data.NvmeSmartHealthInformationLog.Temperature)
 		}
-		fmt.Printf("   [DEBUG SMART] Считано (NVMe переопределение): Hours=%d, Temp=%d, Errors=%d\r\n", hours, temperature, reallocated)
+
+		// Формула перевода NVMe Data Units Written в Гигабайты:
+		// (Счетчик * 512000 байт) / 1024^3
+		// Чтобы избежать потери точности при делении больших чисел, сначала умножаем, потом делим
+		if data.NvmeSmartHealthInformationLog.DataUnitsWritten > 0 {
+			bytesWritten := data.NvmeSmartHealthInformationLog.DataUnitsWritten * 512000
+			writtenGb = bytesWritten / (1024 * 1024 * 1024)
+		}
 	} else {
-		// Для SATA ищем Reallocated Sectors (ID 5)
+		// Для классических SATA дисков ищем параметры в таблице атрибутов
 		for _, attr := range data.AtaSmartAttributes.Table {
-			if attr.Id == 5 {
-				// Приводим uint64 к uint32 для соответствия возвращаемым значениям функции
-				reallocated = uint32(attr.Raw.Value)
-				fmt.Printf("   [DEBUG SMART] Найдено переназначенных секторов (SATA ID 5): %d\r\n", reallocated)
-				break
+			switch attr.Id {
+			case 5:
+				reallocated = uint32(attr.Raw.Value) // Стабильные бэды
+			case 197:
+				pending = uint32(attr.Raw.Value)     // Свежие бэды-кандидаты
+			case 199:
+				crcErrors = uint32(attr.Raw.Value)   // Ошибки SATA кабеля
 			}
 		}
 	}
 
-	fmt.Printf("   [DEBUG SMART] ✅ Сбор для %s успешно завершен. Итог: Sectors=%d, Temp=%d, Hours=%d\r\n", targetDeviceID, reallocated, temperature, hours)
-	return reallocated, temperature, hours
+	return reallocated, pending, crcErrors, pctUsed, writtenGb, temperature, hours
 }
 
 
@@ -233,7 +224,8 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 
 			// Формируем чистый targetID для функции
 			targetID := "PHYSICALDRIVE" + disk.DeviceId
-			realSectors, temp, workHours := GetSmartDataUniversal(targetID)
+			// Принимаем новые 5 параметров из функции
+			realSectors, pendingSectors, cableErrors, wearPct, gbWritten, temp, workHours := GetSmartDataUniversal(targetID)
 
 			results = append(results, AdvancedDiskStatus{
 				DeviceID:           targetID,
@@ -244,6 +236,10 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 				IsHealthy:          disk.HealthStatus == 0,
 				HardwareErrors:     0,
 				ReallocatedSectors: realSectors,
+				BadSectorsPending:  pendingSectors,
+				CrcErrors:          cableErrors,
+				PercentageUsed:     wearPct,
+				SsdWrittenGb:       gbWritten,
 				Temperature:        temp,
 				PowerOnHours:       workHours,
 			})
@@ -271,17 +267,21 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 			healthStatus = "Unhealthy"
 		}
 
-		realSectors, temp, workHours := GetSmartDataUniversal(id)
+		realSectors, pendingSectors, cableErrors, wearPct, gbWritten, temp, workHours := GetSmartDataUniversal(id)
 
 		results = append(results, AdvancedDiskStatus{
-			DeviceID:           id,
-			Model:              disk.Caption,
-			Type:               "HDD",
-			Interface:          disk.InterfaceType,
-			HealthStatus:       healthStatus,
-			IsHealthy:          isHealthy,
-			HardwareErrors:     disk.ConfigManagerErrorCode,
+			DeviceID:           targetID,
+			Model:              disk.FriendlyName,
+			Type:               mediaType,
+			Interface:          busType,
+			HealthStatus:       health,
+			IsHealthy:          disk.HealthStatus == 0,
+			HardwareErrors:     0,
 			ReallocatedSectors: realSectors,
+			BadSectorsPending:  pendingSectors,
+			CrcErrors:          cableErrors,
+			PercentageUsed:     wearPct,
+			SsdWrittenGb:       gbWritten,
 			Temperature:        temp,
 			PowerOnHours:       workHours,
 		})
