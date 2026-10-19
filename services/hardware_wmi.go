@@ -257,7 +257,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		return []AdvancedDiskStatus{}
 	}
 
-	fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive\(\r\\)n", len(driveData))
+	fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive\r\n", len(driveData))
 	for _, disk := range driveData {
 		id := strings.TrimPrefix(disk.DeviceID, `\\.\`)
 
