@@ -157,7 +157,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	err := wmi.QueryNamespace(queryStorage, &storageData, `root\Microsoft\Windows\Storage`)
 
 	if err == nil && len(storageData) > 0 {
-		fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через MSFT_PhysicalDisk\(\r\\)n", len(storageData))
+		fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через MSFT_PhysicalDisk\r\n", len(storageData))
 		for _, disk := range storageData {
 			mediaType := "Unknown"
 			if disk.MediaType == 3 {
@@ -216,7 +216,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		return []AdvancedDiskStatus{}
 	}
 
-	fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive\(\r\\)n", len(driveData))
+	fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive\r\n", len(driveData))
 	for _, disk := range driveData {
 		id := strings.TrimPrefix(disk.DeviceID, `\\.\`)
 
