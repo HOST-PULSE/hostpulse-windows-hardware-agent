@@ -81,7 +81,7 @@ if (!(Test-Path $SmartPath)) {
 $OhmLibPath = "$TargetDir\OpenHardwareMonitorLib.dll"
 if (!(Test-Path $OhmLibPath)) {
     Write-Output "Downloading OpenHardwareMonitorLib component (Binary Mode)..."
-    $OhmLibUrl = "https://githubusercontent.com"
+    $OhmLibUrl = "https://raw.githubusercontent.com/HOST-PULSE/hostpulse-windows-hardware-agent/main/OpenHardwareMonitorLib.dll"
     try {
         # Используем .Net WebClient, который гарантированно не портит заголовки DLL
         $webClient = New-Object System.Net.WebClient
