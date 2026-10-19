@@ -22,11 +22,11 @@ type DiskPayload struct {
 	Disks     []AdvancedDiskStatus `json:"disks"`
 }
 
-//type FanPayload struct {
-//	Token     string      `json:"token"`
-//	Timestamp int64       `json:"timestamp"`
-//	Fans      []FanStatus `json:"fans"`
-//}
+type FanPayload struct {
+	Token     string      `json:"token"`
+	Timestamp int64       `json:"timestamp"`
+	Fans      []FanStatus `json:"fans"`
+}
 //
 //type InfoPayload struct {
 //	Token     string       `json:"token"`
@@ -69,7 +69,7 @@ func sendCpuData(url string, token string) {
 // --- ВОРКЕР ДЛЯ ДИСКОВ (Медленный: 5 минут) ---
 
 func StartDiskPoller(baseURL string, token string) {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	fullURL := baseURL + "api/v1/hardware/disks/"
@@ -101,37 +101,37 @@ func sendDiskData(url string, token string) {
 	}
 }
 
-//func StartFansPoller(baseURL string, token string) {
-//	ticker := time.NewTicker(15 * time.Second)
-//	defer ticker.Stop()
-//
-//	fullURL := baseURL + "api/v1/hardware/fans/"
-//	fmt.Printf(" [Воркер Fans] Запущен. Эндпоинт: %s\n", fullURL)
-//
-//	// Первый быстрый запуск
-//	sendFansData(fullURL, token)
-//
-//	for range ticker.C {
-//		sendFansData(fullURL, token)
-//	}
-//}
-//
-//func sendFansData(url string, token string) {
-//	fans := GetFansStatus()
-//	if fans == nil {
-//		return
-//	}
-//
-//	payload := FanPayload{
-//		Token:     token,
-//		Timestamp: time.Now().Unix(),
-//		Fans:      fans,
-//	}
-//
-//	if jsonData, err := json.Marshal(payload); err == nil {
-//		sendRequest(url, jsonData, "Fans",token) // использует общую функцию sendRequest из poller.go
-//	}
-//}
+func StartFansPoller(baseURL string, token string) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	fullURL := baseURL + "api/v1/hardware/fans/"
+	fmt.Printf(" [Воркер Fans] Запущен. Эндпоинт: %s\n", fullURL)
+
+	// Первый быстрый запуск
+	sendFansData(fullURL, token)
+
+	for range ticker.C {
+		sendFansData(fullURL, token)
+	}
+}
+
+func sendFansData(url string, token string) {
+	fans := GetFansStatus()
+	if fans == nil {
+		return
+	}
+
+	payload := FanPayload{
+		Token:     token,
+		Timestamp: time.Now().Unix(),
+		Fans:      fans,
+	}
+
+	if jsonData, err := json.Marshal(payload); err == nil {
+		sendRequest(url, jsonData, "Fans",token) // использует общую функцию sendRequest из poller.go
+	}
+}
 
 //func SendStaticHardwareInfo(baseURL string, token string) {
 //	fmt.Println(" [i] Сбор паспортных данных системы (CPU, RAM, Motherboard)...")

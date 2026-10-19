@@ -9,7 +9,6 @@ import (
 
 	"os"
 	"path/filepath"
-	// Замените на ваш актуальный модуль из go.mod
 	"windows-hardware-agent/services"
 )
 //go:embed smartctl.exe
@@ -29,7 +28,7 @@ func initLogger() {
 		exePath = "."
 	}
 	exeDir := filepath.Dir(exePath)
-	logFilePath := filepath.Join(exeDir, "agent.log")
+	logFilePath := filepath.Join(exeDir, "agent_hardware.log")
 
 	// Открываем или создаем файл agent.log в режиме добавления записи
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
@@ -88,7 +87,7 @@ func main() {
 	// Запускаем каждый воркер в своей отдельной горутине
 	go services.StartCpuPoller(metricsURL, agentToken)
 	go services.StartDiskPoller(metricsURL, agentToken)
-	//go services.StartFansPoller(metricsURL, agentToken)
+	go services.StartFansPoller(metricsURL, agentToken)
 
 	// Блокируем главный поток, чтобы агент работал бесконечно
 	select {}
