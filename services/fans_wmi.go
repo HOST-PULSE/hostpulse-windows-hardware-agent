@@ -17,7 +17,6 @@ type FanStatus struct {
 
 // GetFansStatus опрашивает датчики оборотов кулеров через извлеченную ранее DLL
 func GetFansStatus() []FanStatus {
-	var results []CpuTempStatus // Используем вашу структуру для сырого пакования (с полями zone_name и celsius)
 
 	tmpDir := os.TempDir()
 	libPath := filepath.Join(tmpDir, "hostpulse_ohm_core.dll")
