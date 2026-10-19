@@ -122,9 +122,8 @@ func extractSmartctl() (string, error) {
 	return execPath, nil
 }
 
-// GetSmartDataUniversal выполняет универсальный сбор SMART через извлеченный smartctl
-// GetSmartDataUniversal выполняет универсальный сбор SMART через извлеченный smartctl с подробным логированием
-func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, pending uint32, crcErrors uint32, pctUsed uint8, writtenGb uint64, temperature uint8, hours uint32) {
+// ИСПРАВЛЕНО: Добавлен string в самый конец возвращаемых типов
+func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, pending uint32, crcErrors uint32, pctUsed uint8, writtenGb uint64, temperature uint8, hours uint32, iface string) {
 	smartctlPath, err := extractSmartctl()
 	if err != nil {
 		return 0, 0, 0, 0, 0, 0, 0, "Unknown"
