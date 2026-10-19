@@ -59,16 +59,22 @@ if (!(Test-Path $NssmPath)) {
     }
 }
 
-# 6. Скачиваем smartctl по жесткому абсолютному пути
 $SmartPath = "$TargetDir\smartctl.exe"
 if (!(Test-Path $SmartPath)) {
-    Write-Output "Downloading smartctl component..."
+    Write-Output "Downloading smartctl component (Binary Mode)..."
     $SmartUrl = "https://raw.githubusercontent.com/HOST-PULSE/hostpulse-windows-hardware-agent/main/smartctl.exe"
     try {
-        Invoke-WebRequest -Uri $SmartUrl -OutFile $SmartPath -UseBasicParsing | Out-Null
+        # Используем .Net WebClient, который гарантированно не портит заголовки EXE
+        $webClient = New-Object System.Net.WebClient
+        $webClient.DownloadFile($SmartUrl, $SmartPath)
     } catch {
-        # ИСПРАВЛЕНО: Используем строго $SmartPath вместо случайного затирания $NssmPath
-        (New-Object System.Net.WebClient).DownloadFile($SmartUrl, $SmartPath)
+        # Резервный метод с принудительным игнорированием кодировок
+        Invoke-WebRequest -Uri $SmartUrl -OutFile $SmartPath -UseBasicParsing -Headers @{"Accept"="application/octet-stream"} | Out-Null
+    }
+
+    # Снимаем возможную блокировку Windows SmartScreen с загруженного файла
+    if (Test-Path $SmartPath) {
+        Unblock-File -Path $SmartPath -ErrorAction SilentlyContinue
     }
 }
 
