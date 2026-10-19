@@ -75,6 +75,8 @@ func GetFansStatus() []FanStatus {
 		return []FanStatus{}
 	}
 
+	fmt.Printf("   [DEBUG FANS RAW JSON]: %s\n", string(rawJson))
+	
 	// Вычищаем JSON-массив
 	re := regexp.MustCompile(`\[\s*\{.*\}\s*\]`)
 	cleanJson := re.FindString(string(rawJson))
