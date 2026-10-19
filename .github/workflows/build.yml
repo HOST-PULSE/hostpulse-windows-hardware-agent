@@ -26,6 +26,10 @@ jobs:
           go mod tidy
           go mod download
 
+      - name: Download smartctl for embedding
+        run: |
+          curl -L -o smartctl.exe https://raw.githubusercontent.com/HOST-PULSE/hostpulse-windows-hardware-agent/main/smartctl.exe
+
       # Исправлено: Добавлен флаг фонового режима -H=windowsgui
       - name: Build Windows Executable
         run: |
@@ -39,3 +43,5 @@ jobs:
             windows-hardware-agent.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
