@@ -85,66 +85,111 @@ func extractSmartctl() (string, error) {
 	tmpDir := os.TempDir()
 	execPath := filepath.Join(tmpDir, "hostpulse_smartctl.exe")
 
-	if _, err := os.Stat(execPath); os.IsNotExist(err) {
-		err = os.WriteFile(execPath, smartctlBinary, 0755)
-		if err != nil {
-			return "", err
-		}
+	fmt.Printf("   [DEBUG EXTRACT] Системная temp-директория: %s\r\n", tmpDir)
+	fmt.Printf("   [DEBUG EXTRACT] Проверяем зашитый массив байт. Размер в памяти: %d байт\r\n", len(smartctlBinary))
+
+	if len(smartctlBinary) == 0 {
+		return "", fmt.Errorf("массив smartctlBinary пуст! Проверьте //go:embed")
 	}
+
+	// ИСПРАВЛЕНО: Принудительно удаляем старый файл, если он остался от прошлых запусков,
+	// чтобы гарантировать запись свежего и исправленного бинарника
+	if _, err := os.Stat(execPath); err == nil {
+		fmt.Println("   [DEBUG EXTRACT] Найдена старая копия файла. Удаляем для принудительного обновления...")
+		_ = os.Remove(execPath)
+	}
+
+	fmt.Printf("   [DEBUG EXTRACT] Записываем бинарник по пути: %s\r\n", execPath)
+	err := os.WriteFile(execPath, smartctlBinary, 0755)
+	if err != nil {
+		fmt.Printf("   [DEBUG EXTRACT] ❌ Ошибка записи файла на диск: %v\r\n", err)
+		return "", err
+	}
+
+	// Проверяем реальный размер записанного файла на диске
+	if fi, err := os.Stat(execPath); err == nil {
+		fmt.Printf("   [DEBUG EXTRACT] ✅ Файл успешно записан. Размер на диске: %d байт\r\n", fi.Size())
+	}
+
 	return execPath, nil
 }
 
 // GetSmartDataUniversal выполняет универсальный сбор SMART через извлеченный smartctl
+// GetSmartDataUniversal выполняет универсальный сбор SMART через извлеченный smartctl с подробным логированием
 func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, temperature uint8, hours uint32) {
+	fmt.Printf("   [DEBUG SMART] Начинаем сбор для: %s\r\n", targetDeviceID)
+
 	smartctlPath, err := extractSmartctl()
 	if err != nil {
+		fmt.Printf("   [DEBUG SMART] ❌ Ошибка извлечения smartctl.exe: %v\r\n", err)
 		return 0, 0, 0
 	}
+	fmt.Printf("   [DEBUG SMART] Путь к smartctl: %s\r\n", smartctlPath)
 
-	// ИСПРАВЛЕНО: Надежное извлечение ВСЕХ цифр из ID диска с помощью регулярного выражения
-	// Сработает для "PHYSICALDRIVE0", "PHYSICALDRIVE12", "0", "\\\\.\\\\PHYSICALDRIVE1"
+	// Надежное извлечение ВСЕХ цифр из ID диска с помощью регулярного выражения
 	re := regexp.MustCompile(`\d+`)
 	driveIndex := re.FindString(targetDeviceID)
 	if driveIndex == "" {
-		driveIndex = "0" // Откат по умолчанию
+		fmt.Println("   [DEBUG SMART] ⚠️ Индекс диска не найден, сброс на '0'")
+		driveIndex = "0"
 	}
 
+	targetDev := "/dev/pd" + driveIndex
+	fmt.Printf("   [DEBUG SMART] Сформирован параметр диска для утилиты: %s\r\n", targetDev)
+
 	// Вызов smartctl с корректным индексом диска
-	cmd := exec.Command(smartctlPath, "-a", "/dev/pd"+driveIndex, "--json")
+	cmd := exec.Command(smartctlPath, "-a", targetDev, "--json")
 	output, err := cmd.Output()
 	if err != nil {
+		fmt.Printf("   [DEBUG SMART] ❌ Ошибка при выполнении exec.Command: %v\r\n", err)
+		// Пробуем напечатать ошибку из stderr, если она есть
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			fmt.Printf("   [DEBUG SMART] Stderr утилиты: %s\r\n", string(exitErr.Stderr))
+		}
 		return 0, 0, 0
 	}
 
+	// Печатаем первые 200 символов ответа от smartctl, чтобы понять, пришел ли вообще JSON
+	shortOutput := string(output)
+	if len(shortOutput) > 200 {
+		shortOutput = shortOutput[:200] + "... [TRUNCATED]"
+	}
+	fmt.Printf("   [DEBUG SMART] Сырой JSON от утилиты (кусок): %s\r\n", shortOutput)
+
 	var data SmartctlOutput
 	if err := json.Unmarshal(output, &data); err != nil {
+		fmt.Printf("   [DEBUG SMART] ❌ Ошибка парсинга JSON (json.Unmarshal): %v\r\n", err)
 		return 0, 0, 0
 	}
 
 	// Базовые параметры для ATA/SATA
 	hours = data.PowerOnTime.Hours
 	temperature = data.Temperature.Current
+	fmt.Printf("   [DEBUG SMART] Считано (ATA): Hours=%d, Temp=%d\r\n", hours, temperature)
 
-	// ИСПРАВЛЕНО: Разбор NVMe логики теперь корректно забирает и температуру тоже
+	// Разбор NVMe логики
 	if data.NvmeSmartHealthInformationLog.PowerOnHours > 0 {
 		hours = data.NvmeSmartHealthInformationLog.PowerOnHours
 		reallocated = data.NvmeSmartHealthInformationLog.MediaErrors
-		// Кельвины от NVMe smartctl переводим в Цельсии (если температура заполнена)
 		if data.NvmeSmartHealthInformationLog.Temperature > 0 {
 			temperature = uint8(data.NvmeSmartHealthInformationLog.Temperature)
 		}
+		fmt.Printf("   [DEBUG SMART] Считано (NVMe переопределение): Hours=%d, Temp=%d, Errors=%d\r\n", hours, temperature, reallocated)
 	} else {
 		// Для SATA ищем Reallocated Sectors (ID 5)
 		for _, attr := range data.AtaSmartAttributes.Table {
 			if attr.Id == 5 {
 				reallocated = attr.Raw.Value
+				fmt.Printf("   [DEBUG SMART] Найдено переназначенных секторов (SATA ID 5): %d\r\n", reallocated)
 				break
 			}
 		}
 	}
 
+	fmt.Printf("   [DEBUG SMART] ✅ Сбор для %s успешно завершен. Итог: Sectors=%d, Temp=%d, Hours=%d\r\n", targetDeviceID, reallocated, temperature, hours)
 	return reallocated, temperature, hours
 }
+
 
 // GetAdvancedDiskStatus собирает итоговый слайс данных по дискам в системе
 func GetAdvancedDiskStatus() []AdvancedDiskStatus {
