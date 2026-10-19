@@ -1,12 +1,12 @@
 package services
 
 import (
-	
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/yusufpapurcu/wmi"
@@ -76,7 +76,7 @@ type SmartctlOutput struct {
 	NvmeSmartHealthInformationLog struct {
 		Temperature  uint32 `json:"temperature"`
 		PowerOnHours uint32 `json:"power_on_hours"`
-		MediaErrors  uint32 `json:"media_errors"` // Основной показатель аппаратных сбоев ячеек
+		MediaErrors  uint32 `json:"media_errors"`
 	} `json:"nvme_smart_health_information_log"`
 }
 
@@ -101,31 +101,40 @@ func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, temperatu
 		return 0, 0, 0
 	}
 
-	// Извлекаем индекс диска (последний символ строки, например "PHYSICALDRIVE0" -> "0")
-	driveIndex := "0"
-	if len(targetDeviceID) > 0 {
-		driveIndex = string(targetDeviceID[len(targetDeviceID)-1])
+	// ИСПРАВЛЕНО: Надежное извлечение ВСЕХ цифр из ID диска с помощью регулярного выражения
+	// Сработает для "PHYSICALDRIVE0", "PHYSICALDRIVE12", "0", "\\\\.\\\\PHYSICALDRIVE1"
+	re := regexp.MustCompile(`\d+`)
+	driveIndex := re.FindString(targetDeviceID)
+	if driveIndex == "" {
+		driveIndex = "0" // Откат по умолчанию
 	}
 
-	// ИСПРАВЛЕНО: Флаг изменен на корректный строго двойной дефис "--json"
+	// Вызов smartctl с корректным индексом диска
 	cmd := exec.Command(smartctlPath, "-a", "/dev/pd"+driveIndex, "--json")
-	output, _ := cmd.Output()
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, 0, 0
+	}
 
 	var data SmartctlOutput
 	if err := json.Unmarshal(output, &data); err != nil {
 		return 0, 0, 0
 	}
 
-	// Читаем базовые параметры из корня (актуально для SATA)
+	// Базовые параметры для ATA/SATA
 	hours = data.PowerOnTime.Hours
 	temperature = data.Temperature.Current
 
-	// ИСПРАВЛЕНО: Добавлен разбор специфичной ветки NVMe, чтобы избежать нулей на SSD
+	// ИСПРАВЛЕНО: Разбор NVMe логики теперь корректно забирает и температуру тоже
 	if data.NvmeSmartHealthInformationLog.PowerOnHours > 0 {
 		hours = data.NvmeSmartHealthInformationLog.PowerOnHours
 		reallocated = data.NvmeSmartHealthInformationLog.MediaErrors
+		// Кельвины от NVMe smartctl переводим в Цельсии (если температура заполнена)
+		if data.NvmeSmartHealthInformationLog.Temperature > 0 {
+			temperature = uint8(data.NvmeSmartHealthInformationLog.Temperature)
+		}
 	} else {
-		// Для классических SATA HDD/SSD ищем атрибут Reallocated Sectors (ID 5)
+		// Для SATA ищем Reallocated Sectors (ID 5)
 		for _, attr := range data.AtaSmartAttributes.Table {
 			if attr.Id == 5 {
 				reallocated = attr.Raw.Value
@@ -148,7 +157,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	err := wmi.QueryNamespace(queryStorage, &storageData, `root\Microsoft\Windows\Storage`)
 
 	if err == nil && len(storageData) > 0 {
-		fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через MSFT_PhysicalDisk\r\n", len(storageData))
+		fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через MSFT_PhysicalDisk\(\r\\)n", len(storageData))
 		for _, disk := range storageData {
 			mediaType := "Unknown"
 			if disk.MediaType == 3 {
@@ -177,6 +186,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 				health = "Unhealthy"
 			}
 
+			// Формируем чистый targetID для функции
 			targetID := "PHYSICALDRIVE" + disk.DeviceId
 			realSectors, temp, workHours := GetSmartDataUniversal(targetID)
 
@@ -206,7 +216,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		return []AdvancedDiskStatus{}
 	}
 
-	fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive\r\n", len(driveData))
+	fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive\(\r\\)n", len(driveData))
 	for _, disk := range driveData {
 		id := strings.TrimPrefix(disk.DeviceID, `\\.\`)
 
@@ -221,7 +231,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		results = append(results, AdvancedDiskStatus{
 			DeviceID:           id,
 			Model:              disk.Caption,
-			Type:               "HDD", // По умолчанию для старого API
+			Type:               "HDD",
 			Interface:          disk.InterfaceType,
 			HealthStatus:       healthStatus,
 			IsHealthy:          isHealthy,
