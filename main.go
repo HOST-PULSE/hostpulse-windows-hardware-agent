@@ -87,7 +87,7 @@ func main() {
 	// Запускаем каждый воркер в своей отдельной горутине
 	go services.StartCpuPoller(metricsURL, agentToken)
 	go services.StartDiskPoller(metricsURL, agentToken)
-	go services.StartFansPoller(metricsURL, agentToken)
+	go services.StartMemoryHardwarePoller(metricsURL, agentToken)
 
 	// Блокируем главный поток, чтобы агент работал бесконечно
 	select {}

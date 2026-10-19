@@ -22,12 +22,12 @@ type DiskPayload struct {
 	Disks     []AdvancedDiskStatus `json:"disks"`
 }
 
-type FanPayload struct {
-	Token     string      `json:"token"`
-	Timestamp int64       `json:"timestamp"`
-	Fans      []FanStatus `json:"fans"`
+type MemoryHardwarePayload struct {
+	Token     string             `json:"token"`
+	Timestamp int64              `json:"timestamp"`
+	Memory    []MemorySlotStatus `json:"memory"`
 }
-//
+
 //type InfoPayload struct {
 //	Token     string       `json:"token"`
 //	Timestamp int64        `json:"timestamp"`
@@ -101,35 +101,35 @@ func sendDiskData(url string, token string) {
 	}
 }
 
-func StartFansPoller(baseURL string, token string) {
-	ticker := time.NewTicker(15 * time.Second)
+func StartMemoryHardwarePoller(baseURL string, token string) {
+	ticker := time.NewTicker(5 * time.Minute) // Опрос раз в 5 минут
 	defer ticker.Stop()
 
-	fullURL := baseURL + "api/v1/hardware/fans/"
-	fmt.Printf(" [Воркер Fans] Запущен. Эндпоинт: %s\n", fullURL)
+	fullURL := baseURL + "api/v1/hardware/memory/"
+	fmt.Printf(" [Воркер RAM Железа] Запущен. Эндпоинт: %s\n", fullURL)
 
-	// Первый быстрый запуск
-	sendFansData(fullURL, token)
+	// Первый запуск сразу
+	sendMemoryHardwareData(fullURL, token)
 
 	for range ticker.C {
-		sendFansData(fullURL, token)
+		sendMemoryHardwareData(fullURL, token)
 	}
 }
 
-func sendFansData(url string, token string) {
-	fans := GetFansStatus()
-	if fans == nil {
+func sendMemoryHardwareData(url string, token string) {
+	ramSlots := GetMemoryHardwareStatus()
+	if len(ramSlots) == 0 {
 		return
 	}
 
-	payload := FanPayload{
+	payload := MemoryHardwarePayload{
 		Token:     token,
 		Timestamp: time.Now().Unix(),
-		Fans:      fans,
+		Memory:    ramSlots,
 	}
 
 	if jsonData, err := json.Marshal(payload); err == nil {
-		sendRequest(url, jsonData, "Fans",token) // использует общую функцию sendRequest из poller.go
+		sendRequest(url, jsonData, "RAM Hardware", token)
 	}
 }
 
