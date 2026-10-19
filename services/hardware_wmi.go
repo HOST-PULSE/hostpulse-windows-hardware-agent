@@ -66,6 +66,9 @@ type SmartctlOutput struct {
 	Temperature struct {
 		Current uint8 `json:"current"`
 	} `json:"temperature"`
+	Device struct {
+		Type string `json:"type"` // Сюда прилетит "ata", "nvme" или "scsi"
+	} `json:"device"`
 	AtaSmartAttributes struct {
 		Table []struct {
 			Id   int    `json:"id"`
@@ -124,7 +127,7 @@ func extractSmartctl() (string, error) {
 func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, pending uint32, crcErrors uint32, pctUsed uint8, writtenGb uint64, temperature uint8, hours uint32) {
 	smartctlPath, err := extractSmartctl()
 	if err != nil {
-		return 0, 0, 0, 0, 0, 0, 0
+		return 0, 0, 0, 0, 0, 0, 0, "Unknown"
 	}
 
 	re := regexp.MustCompile(`\d+`)
@@ -136,12 +139,23 @@ func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, pending u
 	cmd := exec.Command(smartctlPath, "-a", "/dev/pd"+driveIndex, "--json")
 	output, err := cmd.Output()
 	if err != nil && len(output) == 0 {
-		return 0, 0, 0, 0, 0, 0, 0
+		return 0, 0, 0, 0, 0, 0, 0, "Unknown"
 	}
 
 	var data SmartctlOutput
 	if err := json.Unmarshal(output, &data); err != nil {
-		return 0, 0, 0, 0, 0, 0, 0
+		return 0, 0, 0, 0, 0, 0, 0, "Unknown"
+	}
+
+	iface = "Unknown"
+	switch strings.ToLower(data.Device.Type) {
+	case "ata":
+		iface = "SATA"
+	case "nvme":
+		iface = "NVMe"
+	case "scsi":
+		// SAS/SATA диски на серверных контроллерах часто определяются как scsi
+		iface = "SATA"
 	}
 
 	hours = data.PowerOnTime.Hours
@@ -178,7 +192,7 @@ func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, pending u
 		}
 	}
 
-	return reallocated, pending, crcErrors, pctUsed, writtenGb, temperature, hours
+	return reallocated, pending, crcErrors, pctUsed, writtenGb, temperature, hours, iface
 }
 
 
@@ -224,14 +238,20 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 
 			// Формируем чистый targetID для функции
 			targetID := "PHYSICALDRIVE" + disk.DeviceId
-			// Принимаем новые 5 параметров из функции
-			realSectors, pendingSectors, cableErrors, wearPct, gbWritten, temp, workHours := GetSmartDataUniversal(targetID)
+			// Принимаем интерфейс (smartIface) из функции последним аргументом
+			realSectors, pendingSectors, cableErrors, wearPct, gbWritten, temp, workHours, smartIface := GetSmartDataUniversal(targetID)
+
+			// Если WMI не справился, берем данные из smartctl
+			finalInterface := busType
+			if finalInterface == "Unknown" && smartIface != "Unknown" {
+				finalInterface = smartIface
+			}
 
 			results = append(results, AdvancedDiskStatus{
 				DeviceID:           targetID,
 				Model:              disk.FriendlyName,
 				Type:               mediaType,
-				Interface:          busType,
+				Interface:          finalInterface, // Подставляем вычисленный интерфейс
 				HealthStatus:       health,
 				IsHealthy:          disk.HealthStatus == 0,
 				HardwareErrors:     0,
@@ -267,15 +287,28 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 			healthStatus = "Unhealthy"
 		}
 
-		// ИСПРАВЛЕНО: Правильный вызов функции с 7 переменными для Win32_DiskDrive
-		realSectors, pendingSectors, cableErrors, wearPct, gbWritten, temp, workHours := GetSmartDataUniversal(id)
+		realSectors, pendingSectors, cableErrors, wearPct, gbWritten, temp, workHours, smartIface := GetSmartDataUniversal(id)
 
-		// ИСПРАВЛЕНО: Передаем родные поля структуры Win32_DiskDrive (Caption, InterfaceType)
+		// Логика нормализации для старых ОС
+		finalInterface := "Unknown"
+		wmiIface := strings.ToUpper(disk.InterfaceType)
+
+		if strings.Contains(wmiIface, "SCSI") || strings.Contains(wmiIface, "IDE") {
+			finalInterface = "SATA"
+		} else if strings.Contains(wmiIface, "USB") {
+			finalInterface = "USB"
+		}
+
+		// Если WMI выдал странное значение, а smartctl точно знает тип — доверяем smartctl
+		if smartIface != "Unknown" {
+			finalInterface = smartIface
+		}
+
 		results = append(results, AdvancedDiskStatus{
 			DeviceID:           id,
-			Model:              disk.Caption, // Для старых ОС используем Caption вместо FriendlyName
-			Type:               "HDD",        // Старое API всегда отдаёт HDD, smartctl исправит это на бэкенде
-			Interface:          disk.InterfaceType,
+			Model:              disk.Caption,
+			Type:               "HDD",
+			Interface:          finalInterface, // Подставляем вычисленный интерфейс
 			HealthStatus:       healthStatus,
 			IsHealthy:          isHealthy,
 			HardwareErrors:     disk.ConfigManagerErrorCode,
