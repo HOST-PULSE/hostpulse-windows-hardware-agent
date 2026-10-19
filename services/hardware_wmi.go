@@ -68,7 +68,7 @@ type SmartctlOutput struct {
 			Id   int    `json:"id"`
 			Name string `json:"name"`
 			Raw  struct {
-				Value uint32 `json:"value"`
+				Value uint64 `json:"value"` // ИСПРАВЛЕНО: uint32 заменен на uint64, чтобы избежать переполнения
 			} `json:"raw"`
 		} `json:"table"`
 	} `json:"ata_smart_attributes"`
@@ -140,9 +140,8 @@ func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, temperatu
 	// Вызов smartctl с корректным индексом диска
 	cmd := exec.Command(smartctlPath, "-a", targetDev, "--json")
 	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("   [DEBUG SMART] ❌ Ошибка при выполнении exec.Command: %v\r\n", err)
-		// Пробуем напечатать ошибку из stderr, если она есть
+	if err != nil && len(output) == 0 {
+		fmt.Printf("   [DEBUG SMART] ❌ Ошибка при выполнении exec.Command (вывод пуст): %v\r\n", err)
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			fmt.Printf("   [DEBUG SMART] Stderr утилиты: %s\r\n", string(exitErr.Stderr))
 		}
@@ -179,7 +178,8 @@ func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, temperatu
 		// Для SATA ищем Reallocated Sectors (ID 5)
 		for _, attr := range data.AtaSmartAttributes.Table {
 			if attr.Id == 5 {
-				reallocated = attr.Raw.Value
+				// Приводим uint64 к uint32 для соответствия возвращаемым значениям функции
+				reallocated = uint32(attr.Raw.Value)
 				fmt.Printf("   [DEBUG SMART] Найдено переназначенных секторов (SATA ID 5): %d\r\n", reallocated)
 				break
 			}
