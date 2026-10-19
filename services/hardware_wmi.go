@@ -257,7 +257,7 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 		return []AdvancedDiskStatus{}
 	}
 
-	fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive\r\n", len(driveData))
+	fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive\(\r\\)n", len(driveData))
 	for _, disk := range driveData {
 		id := strings.TrimPrefix(disk.DeviceID, `\\.\`)
 
@@ -267,16 +267,18 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 			healthStatus = "Unhealthy"
 		}
 
+		// ИСПРАВЛЕНО: Правильный вызов функции с 7 переменными для Win32_DiskDrive
 		realSectors, pendingSectors, cableErrors, wearPct, gbWritten, temp, workHours := GetSmartDataUniversal(id)
 
+		// ИСПРАВЛЕНО: Передаем родные поля структуры Win32_DiskDrive (Caption, InterfaceType)
 		results = append(results, AdvancedDiskStatus{
-			DeviceID:           targetID,
-			Model:              disk.FriendlyName,
-			Type:               mediaType,
-			Interface:          busType,
-			HealthStatus:       health,
-			IsHealthy:          disk.HealthStatus == 0,
-			HardwareErrors:     0,
+			DeviceID:           id,
+			Model:              disk.Caption, // Для старых ОС используем Caption вместо FriendlyName
+			Type:               "HDD",        // Старое API всегда отдаёт HDD, smartctl исправит это на бэкенде
+			Interface:          disk.InterfaceType,
+			HealthStatus:       healthStatus,
+			IsHealthy:          isHealthy,
+			HardwareErrors:     disk.ConfigManagerErrorCode,
 			ReallocatedSectors: realSectors,
 			BadSectorsPending:  pendingSectors,
 			CrcErrors:          cableErrors,
