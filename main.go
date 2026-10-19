@@ -60,6 +60,8 @@ func (w *winLineFixer) Write(p []byte) (n int, err error) {
 func main() {
 	initLogger()
 
+	services.SetSmartctlBinary(smartctlBytes)
+
 	fmt.Println("\n=======================================================")
 	fmt.Println("=== Агент мониторинга железа HostPulse под Windows запущен ===")
 	fmt.Println("=======================================================")
