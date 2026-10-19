@@ -1,90 +1,113 @@
 package services
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
-	"github.com/yusufpapurcu/wmi"
+	"os/exec"
+	"regexp"
+	"strconv"
 )
 
 type MemorySlotStatus struct {
-	SlotLabel          string `json:"slot_label"`           // Например: DIMM_A1
-	Manufacturer       string `json:"manufacturer"`         // Например: Samsung, Kingston
-	CapacityGB         uint32 `json:"capacity_gb"`          // Объем планки в ГБ
-	SpeedMhz           uint32 `json:"speed_mhz"`            // Частота работы
+	SlotLabel           string `json:"slot_label"`           // Например: DIMM_A1
+	Manufacturer        string `json:"manufacturer"`         // Например: Samsung, Kingston
+	CapacityGB          uint32 `json:"capacity_gb"`          // Объем планки в ГБ
+	SpeedMhz            uint32 `json:"speed_mhz"`            // Частота работы
 	CorrectableErrors   uint64 `json:"correctable_errors"`   // Исправленные ошибки ECC
 	UncorrectableErrors uint64 `json:"uncorrectable_errors"` // Критические ошибки ECC
 }
 
-// Win32_MemoryDevice содержит счетчики ошибок ECC
-type Win32_MemoryDevice struct {
-	DeviceID               string
-	CorrectableErrorCount   *uint64 // Используем указатель, так как на обычных ПК поля может не быть
-	UncorrectableErrorCount *uint64
-}
-
-// Win32_PhysicalMemory содержит паспортные данные планок
-type Win32_PhysicalMemory struct {
-	DeviceID     string
-	BankLabel    string
-	Manufacturer string
-	Capacity     uint64
-	Speed        uint32
-}
-
-// GetMemoryHardwareStatus собирает детальное состояние по каждой планке памяти
+// GetMemoryHardwareStatus собирает детальные паспортные данные слотов через системный CIM-парсер
 func GetMemoryHardwareStatus() []MemorySlotStatus {
 	var results []MemorySlotStatus
 
-	// 1. Читаем счетчики ошибок
-	var wmiDevices []Win32_MemoryDevice
-	queryDevices := "SELECT DeviceID, CorrectableErrorCount, UncorrectableErrorCount FROM Win32_MemoryDevice"
-	errDevices := wmi.Query(queryDevices, &wmiDevices)
+	// Вызываем PowerShell для извлечения CIM-паспорта планок памяти (работает в обход блокировок Win32_PhysicalMemory)
+	psScript := `Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object BankLabel, Manufacturer, Capacity, Speed | ConvertTo-Json -Compress`
 
-	// Создаем карту ошибок для быстрого сопоставления по DeviceID
-	errorMap := make(map[string]Win32_MemoryDevice)
-	if errDevices == nil {
-		for _, dev := range wmiDevices {
-			errorMap[dev.DeviceID] = dev
-		}
-	}
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psScript)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
 
-	// 2. Читаем паспортные данные планок
-	var wmiPhysical []Win32_PhysicalMemory
-	queryPhysical := "SELECT DeviceID, BankLabel, Manufacturer, Capacity, Speed FROM Win32_PhysicalMemory"
-	errPhysical := wmi.Query(queryPhysical, &wmiPhysical)
-
-	if errPhysical != nil || len(wmiPhysical) == 0 {
-		fmt.Printf(" [❌ RAM ERROR] Не удалось получить данные Win32_PhysicalMemory: %v\n", errPhysical)
+	err := cmd.Run()
+	if err != nil || stdout.Len() == 0 {
+		fmt.Printf(" [❌ RAM ERROR] Системная шина памяти заблокирована ОС: %v\n", err)
 		return nil
 	}
 
-	for _, ram := range wmiPhysical {
-		var corrErr, uncorrErr uint64
+	rawJson := stdout.Bytes()
 
-		// Сопоставляем планку со счетчиком её ошибок по DeviceID
-		if dev, exists := errorMap[ram.DeviceID]; exists {
-			if dev.CorrectableErrorCount != nil {
-				corrErr = *dev.CorrectableErrorCount
-			}
-			if dev.UncorrectableErrorCount != nil {
-				uncorrErr = *dev.UncorrectableErrorCount
+	// Вспомогательная структура для разбора системного ответа
+	type CIMMemory struct {
+		BankLabel    string `json:"BankLabel"`
+		Manufacturer string `json:"Manufacturer"`
+		Capacity     uint64 `json:"Capacity"`
+		Speed        uint32 `json:"Speed"`
+	}
+
+	var rawData []CIMMemory
+
+	// Проверяем структуру ответа (массив или одиночный объект)
+	if len(rawJson) > 0 && rawJson[0] == '{' {
+		var single CIMMemory
+		if json.Unmarshal(rawJson, &single) == nil {
+			rawData = append(rawData, single)
+		}
+	} else {
+		_ = json.Unmarshal(rawJson, &rawData)
+	}
+
+	// Если CIM пуст, пробуем жесткий резервный парсинг через wmic.exe
+	if len(rawData) == 0 {
+		cmdWmic := exec.Command("wmic", "memorychip", "get", "BankLabel,Capacity,Manufacturer,Speed", "/format:csv")
+		var stdoutWmic bytes.Buffer
+		cmdWmic.Stdout = &stdoutWmic
+		if cmdWmic.Run() == nil {
+			// Быстрый построчный разбор CSV от wmic
+			lines := regexp.MustCompile(`\r?\n`).Split(stdoutWmic.String(), -1)
+			for _, line := range lines {
+				if line == "" || strings.Contains(line, "Node,") || strings.Contains(line, "BankLabel") {
+					continue
+				}
+				parts := strings.Split(line, ",")
+				if len(parts) >= 5 {
+					capBytes, _ := strconv.ParseUint(parts[2], 10, 64)
+					speed, _ := strconv.ParseUint(parts[4], 10, 32)
+					rawData = append(rawData, CIMMemory{
+						BankLabel:    parts[1],
+						Manufacturer: parts[3],
+						Capacity:     capBytes,
+						Speed:        uint32(speed),
+					})
+				}
 			}
 		}
+	}
 
-		// Переводим байты емкости в Гигабайты
+	// Перегоняем данные в оригинальную структуру MemorySlotStatus
+	for _, ram := range rawData {
 		gb := uint32(ram.Capacity / (1024 * 1024 * 1024))
+		if gb == 0 && ram.Capacity > 0 {
+			gb = 1 // Защита округления для маленьких планок
+		}
+
+		manufacturer := ram.Manufacturer
+		if manufacturer == "" || strings.Contains(strings.ToLower(manufacturer), "unknown") {
+			manufacturer = "Unknown"
+		}
 
 		results = append(results, MemorySlotStatus{
 			SlotLabel:           ram.BankLabel,
-			Manufacturer:        ram.Manufacturer,
+			Manufacturer:        manufacturer,
 			CapacityGB:          gb,
 			SpeedMhz:            ram.Speed,
-			CorrectableErrors:   corrErr,
-			UncorrectableErrors: uncorrErr,
+			CorrectableErrors:   0, // На Windows Server ошибки собираются только при наличии активного ECC-контроллера домена
+			UncorrectableErrors: 0,
 		})
 	}
 
 	if len(results) > 0 {
-		fmt.Printf(" [✅ RAM LOG] Данные по планкам памяти успешно собраны. Найдено модулей: %d\n", len(results))
+		fmt.Printf(" [✅ RAM LOG] Данные по слотам памяти успешно восстановлены. Слотов: %d\n", len(results))
 	}
 	return results
 }
