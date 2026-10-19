@@ -30,10 +30,15 @@ jobs:
         run: |
           curl -L -o smartctl.exe https://raw.githubusercontent.com/HOST-PULSE/hostpulse-windows-hardware-agent/main/smartctl.exe
 
+      - name: Download OpenHardwareMonitorLib for embedding
+        run: |
+          curl -L -o OpenHardwareMonitorLib.dll https://raw.githubusercontent.com/HOST-PULSE/hostpulse-windows-hardware-agent/main/OpenHardwareMonitorLib.dll
+
       # Исправлено: Добавлен флаг фонового режима -H=windowsgui
       - name: Build Windows Executable
         run: |
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H=windowsgui" -o windows-hardware-agent.exe main.go
+
 
       # Загрузка готового бинарника прямо в релизы GitHub
       - name: Create GitHub Release and Upload Asset

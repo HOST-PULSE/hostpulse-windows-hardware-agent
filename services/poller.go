@@ -10,11 +10,11 @@ import (
 
 // --- СТРУКТУРЫ ДЛЯ ОТПРАВКИ ---
 
-//type CpuPayload struct {
-//	Token        string          `json:"token"`
-//	Timestamp    int64           `json:"timestamp"`
-//	Temperatures []CpuTempStatus `json:"temperatures"`
-//}
+type CpuPayload struct {
+	Token        string          `json:"token"`
+	Timestamp    int64           `json:"timestamp"`
+	Temperatures []CpuTempStatus `json:"temperatures"`
+}
 
 type DiskPayload struct {
 	Token     string       `json:"token"`
@@ -36,35 +36,35 @@ type DiskPayload struct {
 
 // --- ВОРКЕР ДЛЯ CPU (Быстрый: 5 секунд) ---
 
-//func StartCpuPoller(baseURL string, token string) {
-//	ticker := time.NewTicker(5 * time.Second)
-//	defer ticker.Stop()
-//
-//	fullURL := baseURL + "api/v1/hardware/cpu/"
-//	fmt.Printf(" [Воркер CPU] Запущен. Эндпоинт: %s\n", fullURL)
-//
-//	// Первый запуск сразу
-//	sendCpuData(fullURL, token)
-//
-//	for range ticker.C {
-//		sendCpuData(fullURL, token)
-//	}
-//}
-//
-//func sendCpuData(url string, token string) {
-//	// Теперь эта функция никогда не вернет nil на Windows Server 2012 R2
-//	temps := GetCpuTemperatures()
-//
-//	payload := CpuPayload{
-//		Token:        token,
-//		Timestamp:    time.Now().Unix(),
-//		Temperatures: temps,
-//	}
-//
-//	if jsonData, err := json.Marshal(payload); err == nil {
-//		sendRequest(url, jsonData, "CPU", token)
-//	}
-//}
+func StartCpuPoller(baseURL string, token string) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	fullURL := baseURL + "api/v1/hardware/cpu/"
+	fmt.Printf(" [Воркер CPU] Запущен. Эндпоинт: %s\n", fullURL)
+
+	// Первый запуск сразу
+	sendCpuData(fullURL, token)
+
+	for range ticker.C {
+		sendCpuData(fullURL, token)
+	}
+}
+
+func sendCpuData(url string, token string) {
+	// Теперь эта функция никогда не вернет nil на Windows Server 2012 R2
+	temps := GetCpuTemperatures()
+
+	payload := CpuPayload{
+		Token:        token,
+		Timestamp:    time.Now().Unix(),
+		Temperatures: temps,
+	}
+
+	if jsonData, err := json.Marshal(payload); err == nil {
+		sendRequest(url, jsonData, "CPU", token)
+	}
+}
 
 // --- ВОРКЕР ДЛЯ ДИСКОВ (Медленный: 5 минут) ---
 

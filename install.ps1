@@ -36,7 +36,7 @@ if (!(Test-Path $TargetDir)) {
 }
 
 # 4. Скачиваем свежий скомпилированный EXE-файл агента из релизов GitHub
-$AgentDownloadUrl = "https://github.com/HOST-PULSE/hostpulse-windows-hardware-agent/releases/download/v1.0.85/windows-hardware-agent.exe"
+$AgentDownloadUrl = "https://github.com/HOST-PULSE/hostpulse-windows-hardware-agent/releases/download/v1.0.86/windows-hardware-agent.exe"
 $AgentPath = "$TargetDir\hostpulse_hardware_agent.exe"
 
 Write-Output "Downloading agent binary..."
@@ -78,8 +78,27 @@ if (!(Test-Path $SmartPath)) {
     }
 }
 
+$OhmLibPath = "$TargetDir\OpenHardwareMonitorLib.dll"
+if (!(Test-Path $OhmLibPath)) {
+    Write-Output "Downloading OpenHardwareMonitorLib component (Binary Mode)..."
+    $OhmLibUrl = "https://githubusercontent.com"
+    try {
+        # Используем .Net WebClient, который гарантированно не портит заголовки DLL
+        $webClient = New-Object System.Net.WebClient
+        $webClient.DownloadFile($OhmLibUrl, $OhmLibPath)
+    } catch {
+        # Резервный метод с принудительным игнорированием кодировок
+        Invoke-WebRequest -Uri $OhmLibUrl -OutFile $OhmLibPath -UseBasicParsing -Headers @{"Accept"="application/octet-stream"} | Out-Null
+    }
+
+    # Снимаем возможную блокировку Windows SmartScreen с загруженного файла библиотеки
+    if (Test-Path $OhmLibPath) {
+        Unblock-File -Path $OhmLibPath -ErrorAction SilentlyContinue
+    }
+}
+
 # Дополнительная проверка на физическое наличие файлов на диске перед установкой
-if (!(Test-Path $NssmPath) -or !(Test-Path $AgentPath) -or !(Test-Path $SmartPath)) {
+if (!(Test-Path $NssmPath) -or !(Test-Path $AgentPath) -or !(Test-Path $SmartPath) -or !(Test-Path $OhmLibPath)) {
     Write-Output "Error: Critical components download failed!"
     exit 1
 }

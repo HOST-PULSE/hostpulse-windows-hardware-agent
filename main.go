@@ -15,6 +15,9 @@ import (
 //go:embed smartctl.exe
 var smartctlBytes []byte
 
+//go:embed OpenHardwareMonitorLib.dll
+var ohmLibraryBytes []byte
+
 type winLineFixer struct {
 	io.Writer
 }
@@ -62,6 +65,8 @@ func main() {
 
 	services.SetSmartctlBinary(smartctlBytes)
 
+	services.SetOhmLibraryBinary(ohmLibraryBytes)
+
 	fmt.Println("\n=======================================================")
 	fmt.Println("=== Агент мониторинга железа HostPulse под Windows запущен ===")
 	fmt.Println("=======================================================")
@@ -81,7 +86,7 @@ func main() {
 	fmt.Printf(" [INFO] Базовый эндпоинт: %s\n", metricsURL)
 	//services.SendStaticHardwareInfo(metricsURL, agentToken)
 	// Запускаем каждый воркер в своей отдельной горутине
-	//go services.StartCpuPoller(metricsURL, agentToken)
+	go services.StartCpuPoller(metricsURL, agentToken)
 	go services.StartDiskPoller(metricsURL, agentToken)
 	//go services.StartFansPoller(metricsURL, agentToken)
 
