@@ -34,6 +34,11 @@ type PowerSupplyHardwarePayload struct {
 	PowerSupplies []PowerSupplyStatus `json:"power_supplies"`
 }
 
+type NetworkHardwarePayload struct {
+	Token      string                   `json:"token"`
+	Timestamp  int64                    `json:"timestamp"`
+	Interfaces []NetworkInterfaceStatus `json:"interfaces"`
+}
 //type InfoPayload struct {
 //	Token     string       `json:"token"`
 //	Timestamp int64        `json:"timestamp"`
@@ -170,7 +175,38 @@ func sendPowerSupplyHardwareData(url string, token string) {
 		sendRequest(url, jsonData, "Power Supply Hardware", token)
 	}
 }
+func StartNetworkHardwarePoller(baseURL string, token string) {
+	// Для отладки ставим 5 секунд, чтобы сразу поймать пакет в Django. В продакшене вернем 5 минут!
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
+	fullURL := baseURL + "api/v1/hardware/network/"
+	fmt.Printf(" [Воркер Сети] Запущен. Эндпоинт: %s\n", fullURL)
+
+	// Первый запуск сразу
+	sendNetworkHardwareData(fullURL, token)
+
+	for range ticker.C {
+		sendNetworkHardwareData(fullURL, token)
+	}
+}
+
+func sendNetworkHardwareData(url string, token string) {
+	netInterfaces := GetNetworkHardwareStatus()
+	if len(netInterfaces) == 0 {
+		return
+	}
+
+	payload := NetworkHardwarePayload{
+		Token:      token,
+		Timestamp:  time.Now().Unix(),
+		Interfaces: netInterfaces,
+	}
+
+	if jsonData, err := json.Marshal(payload); err == nil {
+		sendRequest(url, jsonData, "Network Hardware", token)
+	}
+}
 //func SendStaticHardwareInfo(baseURL string, token string) {
 //	fmt.Println(" [i] Сбор паспортных данных системы (CPU, RAM, Motherboard)...")
 //

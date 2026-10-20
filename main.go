@@ -89,6 +89,7 @@ func main() {
 	go services.StartDiskPoller(metricsURL, agentToken)
 	go services.StartMemoryHardwarePoller(metricsURL, agentToken)
 	go services.StartPowerSupplyHardwarePoller(metricsURL, agentToken)
+	go services.StartNetworkHardwarePoller(metricsURL, agentToken)
 
 	// Блокируем главный поток, чтобы агент работал бесконечно
 	select {}
