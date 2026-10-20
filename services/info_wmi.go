@@ -40,7 +40,7 @@ func GetHardwareStaticInfo() HardwareInfo {
 		parts := strings.Split(stdoutCpu.String(), "REG_SZ")
 		if len(parts) >= 2 {
 			info.CpuModel = strings.TrimSpace(parts[1])
-			info.CpuModel = strings.ReplaceAll(info.CpuModel, "\(\r\)", "")
+			info.CpuModel = strings.ReplaceAll(info.CpuModel, "\r", "")
 			info.CpuModel = strings.ReplaceAll(info.CpuModel, "\n", "")
 		}
 	}
@@ -68,7 +68,7 @@ func GetHardwareStaticInfo() HardwareInfo {
 	cmdOs.Stdout = &stdoutOs
 	if err := cmdOs.Run(); err == nil {
 		info.OsType = strings.TrimSpace(stdoutOs.String())
-		info.OsType = strings.ReplaceAll(info.OsType, "\(\r\)", "")
+		info.OsType = strings.ReplaceAll(info.OsType, "\r", "")
 		info.OsType = strings.ReplaceAll(info.OsType, "\n", "")
 	} else {
 		info.OsType = "Microsoft Windows Server"
