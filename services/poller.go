@@ -39,11 +39,11 @@ type NetworkHardwarePayload struct {
 	Timestamp  int64                    `json:"timestamp"`
 	Interfaces []NetworkInterfaceStatus `json:"interfaces"`
 }
-//type InfoPayload struct {
-//	Token     string       `json:"token"`
-//	Timestamp int64        `json:"timestamp"`
-//	Info      HardwareInfo `json:"info"`
-//}
+type InfoPayload struct {
+	Token     string       `json:"token"`
+	Timestamp int64        `json:"timestamp"`
+	Info      HardwareInfo `json:"info"`
+}
 
 // --- ВОРКЕР ДЛЯ CPU (Быстрый: 5 секунд) ---
 
@@ -207,23 +207,23 @@ func sendNetworkHardwareData(url string, token string) {
 		sendRequest(url, jsonData, "Network Hardware", token)
 	}
 }
-//func SendStaticHardwareInfo(baseURL string, token string) {
-//	fmt.Println(" [i] Сбор паспортных данных системы (CPU, RAM, Motherboard)...")
-//
-//	info := GetHardwareStaticInfo()
-//	fullURL := baseURL + "api/v1/hardware/info/"
-//
-//	payload := InfoPayload{
-//		Token:     token,
-//		Timestamp: time.Now().Unix(),
-//		Info:      info,
-//	}
-//
-//	if jsonData, err := json.Marshal(payload); err == nil {
-//		// Использует уже готовую функцию sendRequest из poller.go
-//		sendRequest(fullURL, jsonData, "StaticInfo",token)
-//	}
-//}
+func SendStaticHardwareInfo(baseURL string, token string) {
+	fmt.Println(" [i] Сбор паспортных данных системы (CPU, RAM, Motherboard)...")
+
+	info := GetHardwareStaticInfo()
+	fullURL := baseURL + "api/v1/hardware/info/"
+
+	payload := InfoPayload{
+		Token:     token,
+		Timestamp: time.Now().Unix(),
+		Info:      info,
+	}
+
+	if jsonData, err := json.Marshal(payload); err == nil {
+		// Использует уже готовую функцию sendRequest из poller.go
+		sendRequest(fullURL, jsonData, "StaticInfo",token)
+	}
+}
 
 // --- ОБЩАЯ СЕТЕВАЯ ФУНКЦИЯ ---
 
