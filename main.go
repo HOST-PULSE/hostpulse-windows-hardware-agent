@@ -83,7 +83,7 @@ func main() {
 	}
 
 	fmt.Printf(" [INFO] Базовый эндпоинт: %s\n", metricsURL)
-	//services.SendStaticHardwareInfo(metricsURL, agentToken)
+	services.SendStaticHardwareInfo(metricsURL, agentToken)
 	// Запускаем каждый воркер в своей отдельной горутине
 	go services.StartCpuPoller(metricsURL, agentToken)
 	go services.StartDiskPoller(metricsURL, agentToken)
