@@ -1,7 +1,8 @@
 param (
     [string]$URL = "https://hostpulse.link/", # Базовый URL бэкенда HostPulse
     [string]$TOKEN = "",
-    [string]$PASSWORD = ""
+    [string]$PASSWORD = "",
+    [string]$LOGS = "true"
 )
 # Принудительно включаем UTF-8 кодировку для отображения текста без знаков вопроса
 [console]::InputEncoding = [System.Text.Encoding]::UTF8
@@ -113,11 +114,14 @@ Write-Output "Registering Windows Service..."
 & $NssmPath set $ServiceName Start SERVICE_AUTO_START | Out-Null
 
 # 7. Устанавливаем переменные окружения для службы
-# Исправлено: Убрали "api/v1/metrics/", так как Go-код сам добавляет нужные эндпоинты
+$logsEnvValue = "true"
+if ($LOGS -eq "false") { $logsEnvValue = "false" }
+
 $EnvPayload = @(
     "HOSTPULSE_HARDWARE_URL=$URL",
     "HOSTPULSE_TOKEN=$TOKEN",
-    "HOSTPULSE_SECRET=$PASSWORD"
+    "HOSTPULSE_SECRET=$PASSWORD",
+    "HOSTPULSE_LOGS_ENABLE=$logsEnvValue"
 ) -join "`n"
 
 & $NssmPath set $ServiceName AppEnvironmentExtra $EnvPayload | Out-Null
