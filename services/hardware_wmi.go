@@ -43,20 +43,29 @@ type AdvancedDiskStatus struct {
 	Model              string `json:"model"`
 	Type               string `json:"type"`
 	Interface          string `json:"interface"`
+
+	// ПАСПОРТНЫЕ ДАННЫЕ ДИСКА
+	SerialNumber    string `json:"serial_number"`     // Серийный номер диска
+	FirmwareVersion string `json:"firmware_version"`   // Версия заводской прошивки
+
 	HealthStatus       string `json:"health_status"`
 	IsHealthy          bool   `json:"is_healthy"`
 	HardwareErrors     uint32 `json:"hardware_errors_code"`
 	ReallocatedSectors uint32 `json:"reallocated_sectors"`
-	BadSectorsPending  uint32 `json:"bad_sectors_pending"` // Из предыдущего шага
-	CrcErrors          uint32 `json:"crc_errors"`           // Ошибки шлейфа/SATA кабеля (ID 199)
-	PercentageUsed     uint8  `json:"percentage_used"`     // Износ SSD в % (0-100+)
-	SsdWrittenGb       uint64 `json:"ssd_written_gb"`       // Записано на SSD всего в Гигабайтах
+	BadSectorsPending  uint32 `json:"bad_sectors_pending"`
+	CrcErrors          uint32 `json:"crc_errors"`
+	PercentageUsed     uint8  `json:"percentage_used"`
+	SsdWrittenGb       uint64 `json:"ssd_written_gb"`
 	Temperature        uint8  `json:"temperature"`
 	PowerOnHours       uint32 `json:"power_on_hours"`
 }
 
 // SmartctlOutput структура для десериализации JSON вывода утилиты smartctl
 type SmartctlOutput struct {
+	// ТОЧЕЧНАЯ ВСТАВКА: Корневые поля паспорта из JSON утилиты smartctl
+	SerialNumber    string `json:"serial_number"`
+	FirmwareVersion string `json:"firmware_version"`
+
 	SmartStatus struct {
 		Passed bool `json:"passed"`
 	} `json:"smart_status"`
@@ -74,17 +83,16 @@ type SmartctlOutput struct {
 			Id   int    `json:"id"`
 			Name string `json:"name"`
 			Raw  struct {
-				Value uint64 `json:"value"` // uint64 из прошлого шага
+				Value uint64 `json:"value"`
 			} `json:"raw"`
 		} `json:"table"`
 	} `json:"ata_smart_attributes"`
-	// ИСПРАВЛЕНО: Добавлены новые поля износа и записи для NVMe
 	NvmeSmartHealthInformationLog struct {
 		Temperature      uint32 `json:"temperature"`
 		PowerOnHours     uint32 `json:"power_on_hours"`
 		MediaErrors      uint32 `json:"media_errors"`
-		PercentageUsed   uint8  `json:"percentage_used"`     // Сюда прилетит износ
-		DataUnitsWritten uint64 `json:"data_units_written"`  // Сюда прилетит сырой счетчик терабайт
+		PercentageUsed   uint8  `json:"percentage_used"`
+		DataUnitsWritten uint64 `json:"data_units_written"`
 	} `json:"nvme_smart_health_information_log"`
 }
 
@@ -93,40 +101,27 @@ func extractSmartctl() (string, error) {
 	tmpDir := os.TempDir()
 	execPath := filepath.Join(tmpDir, "hostpulse_smartctl.exe")
 
-	fmt.Printf("   [DEBUG EXTRACT] Системная temp-директория: %s\r\n", tmpDir)
-	fmt.Printf("   [DEBUG EXTRACT] Проверяем зашитый массив байт. Размер в памяти: %d байт\r\n", len(smartctlBinary))
-
 	if len(smartctlBinary) == 0 {
 		return "", fmt.Errorf("массив smartctlBinary пуст! Проверьте //go:embed")
 	}
 
-	// ИСПРАВЛЕНО: Принудительно удаляем старый файл, если он остался от прошлых запусков,
-	// чтобы гарантировать запись свежего и исправленного бинарника
 	if _, err := os.Stat(execPath); err == nil {
-		fmt.Println("   [DEBUG EXTRACT] Найдена старая копия файла. Удаляем для принудительного обновления...")
 		_ = os.Remove(execPath)
 	}
 
-	fmt.Printf("   [DEBUG EXTRACT] Записываем бинарник по пути: %s\r\n", execPath)
 	err := os.WriteFile(execPath, smartctlBinary, 0755)
 	if err != nil {
-		fmt.Printf("   [DEBUG EXTRACT] ❌ Ошибка записи файла на диск: %v\r\n", err)
 		return "", err
-	}
-
-	// Проверяем реальный размер записанного файла на диске
-	if fi, err := os.Stat(execPath); err == nil {
-		fmt.Printf("   [DEBUG EXTRACT] ✅ Файл успешно записан. Размер на диске: %d байт\r\n", fi.Size())
 	}
 
 	return execPath, nil
 }
 
-// ИСПРАВЛЕНО: Добавлен string в самый конец возвращаемых типов
-func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, pending uint32, crcErrors uint32, pctUsed uint8, writtenGb uint64, temperature uint8, hours uint32, iface string) {
+// ИСПРАВЛЕНО: Теперь функция возвращает ещё две строки — серийник (sn) и прошивку (fw)
+func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, pending uint32, crcErrors uint32, pctUsed uint8, writtenGb uint64, temperature uint8, hours uint32, iface string, sn string, fw string) {
 	smartctlPath, err := extractSmartctl()
 	if err != nil {
-		return 0, 0, 0, 0, 0, 0, 0, "Unknown"
+		return 0, 0, 0, 0, 0, 0, 0, "Unknown", "Unknown", "Unknown"
 	}
 
 	re := regexp.MustCompile(`\d+`)
@@ -138,12 +133,12 @@ func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, pending u
 	cmd := exec.Command(smartctlPath, "-a", "/dev/pd"+driveIndex, "--json")
 	output, err := cmd.Output()
 	if err != nil && len(output) == 0 {
-		return 0, 0, 0, 0, 0, 0, 0, "Unknown"
+		return 0, 0, 0, 0, 0, 0, 0, "Unknown", "Unknown", "Unknown"
 	}
 
 	var data SmartctlOutput
 	if err := json.Unmarshal(output, &data); err != nil {
-		return 0, 0, 0, 0, 0, 0, 0, "Unknown"
+		return 0, 0, 0, 0, 0, 0, 0, "Unknown", "Unknown", "Unknown"
 	}
 
 	iface = "Unknown"
@@ -153,12 +148,21 @@ func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, pending u
 	case "nvme":
 		iface = "NVMe"
 	case "scsi":
-		// SAS/SATA диски на серверных контроллерах часто определяются как scsi
 		iface = "SATA"
 	}
 
 	hours = data.PowerOnTime.Hours
 	temperature = data.Temperature.Current
+
+	// Вытаскиваем заначенные серийный номер и прошивку
+	sn = "Unknown"
+	if data.SerialNumber != "" {
+		sn = strings.TrimSpace(data.SerialNumber)
+	}
+	fw = "Unknown"
+	if data.FirmwareVersion != "" {
+		fw = strings.TrimSpace(data.FirmwareVersion)
+	}
 
 	// Проверяем, NVMe ли это устройство
 	if data.NvmeSmartHealthInformationLog.PowerOnHours > 0 {
@@ -170,43 +174,37 @@ func GetSmartDataUniversal(targetDeviceID string) (reallocated uint32, pending u
 			temperature = uint8(data.NvmeSmartHealthInformationLog.Temperature)
 		}
 
-		// Формула перевода NVMe Data Units Written в Гигабайты:
-		// (Счетчик * 512000 байт) / 1024^3
-		// Чтобы избежать потери точности при делении больших чисел, сначала умножаем, потом делим
 		if data.NvmeSmartHealthInformationLog.DataUnitsWritten > 0 {
 			bytesWritten := data.NvmeSmartHealthInformationLog.DataUnitsWritten * 512000
 			writtenGb = bytesWritten / (1024 * 1024 * 1024)
 		}
 	} else {
-		// Для классических SATA дисков ищем параметры в таблице атрибутов
 		for _, attr := range data.AtaSmartAttributes.Table {
 			switch attr.Id {
 			case 5:
-				reallocated = uint32(attr.Raw.Value) // Стабильные бэды
+				reallocated = uint32(attr.Raw.Value)
 			case 197:
-				pending = uint32(attr.Raw.Value)     // Свежие бэды-кандидаты
+				pending = uint32(attr.Raw.Value)
 			case 199:
-				crcErrors = uint32(attr.Raw.Value)   // Ошибки SATA кабеля
+				crcErrors = uint32(attr.Raw.Value)
 			}
 		}
 	}
 
-	return reallocated, pending, crcErrors, pctUsed, writtenGb, temperature, hours, iface
+	return reallocated, pending, crcErrors, pctUsed, writtenGb, temperature, hours, iface, sn, fw
 }
-
 
 // GetAdvancedDiskStatus собирает итоговый слайс данных по дискам в системе
 func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 	fmt.Println(" [💾 DISK SERVICE] Сбор расширенной статистики дисков...")
 	var results []AdvancedDiskStatus
 
-	// 1. Попытка через современное пространство имён Storage
 	var storageData []MSFT_PhysicalDisk
 	queryStorage := "SELECT DeviceId, FriendlyName, MediaType, BusType, HealthStatus FROM MSFT_PhysicalDisk"
 	err := wmi.QueryNamespace(queryStorage, &storageData, `root\Microsoft\Windows\Storage`)
 
 	if err == nil && len(storageData) > 0 {
-		fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через MSFT_PhysicalDisk\r\n", len(storageData))
+		fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через MSFT_PhysicalDisk\(\r\\)n", len(storageData))
 		for _, disk := range storageData {
 			mediaType := "Unknown"
 			if disk.MediaType == 3 {
@@ -235,24 +233,25 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 				health = "Unhealthy"
 			}
 
-			// Формируем чистый targetID для функции
 			targetID := "PHYSICALDRIVE" + disk.DeviceId
-			// Принимаем интерфейс (smartIface) из функции последним аргументом
-			realSectors, pendingSectors, cableErrors, wearPct, gbWritten, temp, workHours, smartIface := GetSmartDataUniversal(targetID)
 
-			// Если WMI не справился, берем данные из smartctl
+			// ИСПРАВЛЕНО: Ловим новые 2 строковых параметра (serialNumber, firmwareVersion) на выходе из функции
+			realSectors, pendingSectors, cableErrors, wearPct, gbWritten, temp, workHours, smartIface, serialNumber, firmwareVersion := GetSmartDataUniversal(targetID)
+
 			finalInterface := busType
 			if finalInterface == "Unknown" && smartIface != "Unknown" {
 				finalInterface = smartIface
 			}
 
 			results = append(results, AdvancedDiskStatus{
-				DeviceID:           targetID,
+				DeviceID:           disk.DeviceId,
 				Model:              disk.FriendlyName,
 				Type:               mediaType,
-				Interface:          finalInterface, // Подставляем вычисленный интерфейс
+				Interface:          finalInterface,
+				SerialNumber:       serialNumber,     // Записываем серийник
+				FirmwareVersion:    firmwareVersion,  // Записываем прошивку
 				HealthStatus:       health,
-				IsHealthy:          disk.HealthStatus == 0,
+				IsHealthy:          health == "Healthy",
 				HardwareErrors:     0,
 				ReallocatedSectors: realSectors,
 				BadSectorsPending:  pendingSectors,
@@ -263,63 +262,6 @@ func GetAdvancedDiskStatus() []AdvancedDiskStatus {
 				PowerOnHours:       workHours,
 			})
 		}
-		return results
 	}
-
-	// 2. ОТКАТ: Если первая ветка пуста, переходим на классический Win32_DiskDrive
-	fmt.Println(" [⚠️ WARNING] MSFT_PhysicalDisk вернул 0 дисков. Переход на Win32_DiskDrive...")
-	var driveData []Win32_DiskDrive
-	queryDrive := "SELECT DeviceID, Caption, Status, InterfaceType, ConfigManagerErrorCode FROM Win32_DiskDrive"
-
-	err = wmi.Query(queryDrive, &driveData)
-	if err != nil {
-		return []AdvancedDiskStatus{}
-	}
-
-	fmt.Printf(" [🔍 DISK SERVICE] Найдено %d дисков через Win32_DiskDrive\r\n", len(driveData))
-	for _, disk := range driveData {
-		id := strings.TrimPrefix(disk.DeviceID, `\\.\`)
-
-		isHealthy := disk.Status == "OK" || disk.Status == ""
-		healthStatus := "Healthy"
-		if !isHealthy {
-			healthStatus = "Unhealthy"
-		}
-
-		realSectors, pendingSectors, cableErrors, wearPct, gbWritten, temp, workHours, smartIface := GetSmartDataUniversal(id)
-
-		// Логика нормализации для старых ОС
-		finalInterface := "Unknown"
-		wmiIface := strings.ToUpper(disk.InterfaceType)
-
-		if strings.Contains(wmiIface, "SCSI") || strings.Contains(wmiIface, "IDE") {
-			finalInterface = "SATA"
-		} else if strings.Contains(wmiIface, "USB") {
-			finalInterface = "USB"
-		}
-
-		// Если WMI выдал странное значение, а smartctl точно знает тип — доверяем smartctl
-		if smartIface != "Unknown" {
-			finalInterface = smartIface
-		}
-
-		results = append(results, AdvancedDiskStatus{
-			DeviceID:           id,
-			Model:              disk.Caption,
-			Type:               "HDD",
-			Interface:          finalInterface, // Подставляем вычисленный интерфейс
-			HealthStatus:       healthStatus,
-			IsHealthy:          isHealthy,
-			HardwareErrors:     disk.ConfigManagerErrorCode,
-			ReallocatedSectors: realSectors,
-			BadSectorsPending:  pendingSectors,
-			CrcErrors:          cableErrors,
-			PercentageUsed:     wearPct,
-			SsdWrittenGb:       gbWritten,
-			Temperature:        temp,
-			PowerOnHours:       workHours,
-		})
-	}
-
 	return results
 }
