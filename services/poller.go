@@ -28,6 +28,12 @@ type MemoryHardwarePayload struct {
 	Memory    []MemorySlotStatus `json:"memory"`
 }
 
+type PowerSupplyHardwarePayload struct {
+	Token        string              `json:"token"`
+	Timestamp    int64               `json:"timestamp"`
+	PowerSupplies []PowerSupplyStatus `json:"power_supplies"`
+}
+
 //type InfoPayload struct {
 //	Token     string       `json:"token"`
 //	Timestamp int64        `json:"timestamp"`
@@ -130,6 +136,38 @@ func sendMemoryHardwareData(url string, token string) {
 
 	if jsonData, err := json.Marshal(payload); err == nil {
 		sendRequest(url, jsonData, "RAM Hardware", token)
+	}
+}
+
+func StartPowerSupplyHardwarePoller(baseURL string, token string) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	fullURL := baseURL + "api/v1/hardware/powersupply/"
+	fmt.Printf(" [Воркер Питания] Запущен. Эндпоинт: %s\n", fullURL)
+
+	// Первый запуск сразу
+	sendPowerSupplyHardwareData(fullURL, token)
+
+	for range ticker.C {
+		sendPowerSupplyHardwareData(fullURL, token)
+	}
+}
+
+func sendPowerSupplyHardwareData(url string, token string) {
+	psUnits := GetPowerSupplyHardwareStatus()
+	if len(psUnits) == 0 {
+		return
+	}
+
+	payload := PowerSupplyHardwarePayload{
+		Token:         token,
+		Timestamp:     time.Now().Unix(),
+		PowerSupplies: psUnits,
+	}
+
+	if jsonData, err := json.Marshal(payload); err == nil {
+		sendRequest(url, jsonData, "Power Supply Hardware", token)
 	}
 }
 
