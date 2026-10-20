@@ -12,7 +12,6 @@ type NetworkInterfaceStatus struct {
 	IsConnected   bool   `json:"is_connected"`   // Подключен ли кабель физически
 }
 
-# Win32_NetworkAdapter — стандартный класс WMI Windows для сетевых карт
 type Win32_NetworkAdapter struct {
 	Name                 string
 	MACAddress           *string // Используем указатель, так как у виртуальных или скрытых адаптеров может быть null
