@@ -35,19 +35,22 @@ func GetNetworkHardwareStatus() []NetworkInterfaceStatus {
 	}
 
 	for _, adapter := range wmiNet {
+		// По спецификации Microsoft: NetConnectionStatus == 2 означает Connected
+		isConnected := adapter.NetConnectionStatus == 2
+
 		var speedMbps uint64
-		if adapter.Speed != nil {
-			// WMI отдает скорость в битах в секунду (bps), переводим в Мегабиты (деление на 1 000 000)
-			speedMbps = *adapter.Speed / 1000000
+		// ИСПРАВЛЕНО: Считаем скорость только если кабель подключен. Если отключен — жестко ставим 0!
+		if isConnected && adapter.Speed != nil {
+			// Проверяем на маркер ошибки Windows (uint64_max)
+			if *adapter.Speed > 0 && *adapter.Speed < 18446744073709551615 {
+				speedMbps = *adapter.Speed / 1000000
+			}
 		}
 
 		mac := "Unknown"
 		if adapter.MACAddress != nil {
 			mac = *adapter.MACAddress
 		}
-
-		// По спецификации Microsoft: NetConnectionStatus == 2 означает Connected
-		isConnected := adapter.NetConnectionStatus == 2
 
 		results = append(results, NetworkInterfaceStatus{
 			InterfaceName: adapter.Name,

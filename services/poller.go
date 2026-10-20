@@ -177,7 +177,7 @@ func sendPowerSupplyHardwareData(url string, token string) {
 }
 func StartNetworkHardwarePoller(baseURL string, token string) {
 	// Для отладки ставим 5 секунд, чтобы сразу поймать пакет в Django. В продакшене вернем 5 минут!
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	fullURL := baseURL + "api/v1/hardware/network/"
